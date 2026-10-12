@@ -5,9 +5,9 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv };")(
+const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory };")(
   { getItem: () => null, setItem() {} }, { hash: "" });
-const { S, nextInvoice, nextCustNo, customersFromCsv } = app;
+const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory } = app;
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
 S.settings = { invoicePrefix: "RE-2026-", nextInvoiceNo: 41 };
@@ -36,10 +36,24 @@ const csv = "﻿" + [head,
 ].join("\r\n") + "\r\n";
 const res = customersFromCsv(csv, [{ name: "schon da kg", customerNo: "099" }]);
 assert.deepStrictEqual([res.add.length, res.skipped, res.ignored], [2, 1, 1]);
+assert.deepStrictEqual(res.suppliers, ["Lieferant AG"]);
 assert.deepStrictEqual(res.add[0], {
   customerNo: "003", name: "Beispiel GmbH", contact: "Frau Erika Muster", street: "Hauptstr. 1", zip: "12345", city: "Musterstadt",
   country: "", email: "info@beispiel.example", phone: "0123 45", vatId: "DE123", note: "Notiz mit ; Semikolon\nbeispiel.example",
 });
 assert.deepStrictEqual([res.add[1].customerNo, res.add[1].street, res.add[1].city, res.add[1].country], ["100", "Weg 2", "Wien", "Österreich"]);
+
+// Partner-Feld: Vorschläge ohne Dubletten, Kategorie der letzten Buchung.
+S.settings = { suppliers: ["Strato GmbH", "adobe"] };
+S.customers = [{ name: "Beispiel GmbH" }];
+S.entries = [
+  { kind: "out", party: "Adobe", date: "2026-01-05", category: "sonstige" },
+  { kind: "out", party: "adobe", date: "2026-03-05", category: "software" },
+  { kind: "in", party: "Bar-Kunde", date: "2026-02-01", category: "umsatz" },
+];
+assert.deepStrictEqual(partyNames("out"), ["Adobe", "Strato GmbH"]);
+assert.deepStrictEqual(partyNames("in"), ["Bar-Kunde", "Beispiel GmbH"]);
+assert.strictEqual(lastCategory("out", " ADOBE "), "software");
+assert.strictEqual(lastCategory("out", "Strato GmbH"), undefined);
 
 console.log("OK");

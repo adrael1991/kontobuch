@@ -701,6 +701,20 @@ function customerForm(c = {}) {
 const recipientOf = c => [c.name, c.contact, c.street, [c.zip, c.city].filter(Boolean).join(" "), c.country].filter(x => x && String(x).trim()).join("\n");
 
 /* ---------- entries ---------- */
+/* Vorschläge fürs Partner-Feld: Einnahmen von Kunden, Ausgaben an Lieferanten, dazu alles schon Gebuchte. */
+function partyNames(kind) {
+  const names = kind === "in" ? S.customers.map(c => c.name) : (sett().suppliers || []);
+  const seen = new Set(); const out = [];
+  for (const n of [...S.entries.filter(x => x.kind === kind).map(x => x.party), ...names]) {
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+  }
+  return out.sort((a, b) => a.localeCompare(b, "de"));
+}
+/* Kategorie der letzten Buchung beim selben Partner. */
+function lastCategory(kind, party) {
+  const p = party.trim().toLowerCase();
+  return p && S.entries.filter(x => x.kind === kind && (x.party || "").toLowerCase() === p).sort((a, b) => b.date.localeCompare(a.date))[0]?.category;
+}
 function entryForm(e) {
   const s = sett();
   const ku = e.id ? !!e.ku : !!s.kleinunternehmer;
@@ -725,7 +739,7 @@ function entryForm(e) {
         : `<span class="hint">Belege hochladen geht nur, wenn du das Kontobuch selbst geöffnet hast.</span>`}</div>
     ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Die erfasst du besser mit deiner Steuerberatung.</p>` : ""}
   </div>
-  <datalist id="party-list">${[...new Set(S.entries.map(x => x.party).filter(Boolean))].slice(0, 200).map(p => `<option value="${esc(p)}">`).join("")}</datalist>
+  <datalist id="party-list">${partyNames(e.kind).map(p => `<option value="${esc(p)}">`).join("")}</datalist>
   <div class="form-foot"><div class="grp">${e.id ? `<button type="button" class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button>` : ""}</div>
   <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
 }
@@ -1054,11 +1068,11 @@ function customersFromCsv(text, existing) {
   const pick = (r, ...keys) => keys.map(k => r[k]).find(v => v) || "";
   const taken = existing.map(c => c.customerNo);
   const names = new Set(existing.map(c => (c.name || "").toLowerCase()));
-  const res = { add: [], skipped: 0, ignored: 0 };
+  const res = { add: [], skipped: 0, ignored: 0, suppliers: [] };
   for (const r of parseCsv(text)) {
     const name = pick(r, "Name", "Firma");
     if (!name) continue;
-    if (r.Kontaktart && r.Kontaktart !== "Kunde") { res.ignored++; continue; }
+    if (r.Kontaktart && r.Kontaktart !== "Kunde") { res.ignored++; if (r.Kontaktart === "Lieferant") res.suppliers.push(name); continue; }
     let no = pick(r, "Kunden-/Lieferantennr.", "Kundennummer").replace(/^\D+/, "");
     if (names.has(name.toLowerCase()) || (no && taken.includes(no))) { res.skipped++; continue; }
     no = no || nextCustNo(taken);
@@ -1077,12 +1091,18 @@ function customersFromCsv(text, existing) {
 }
 async function importCustomers(file) {
   const res = customersFromCsv(await file.text(), S.customers);
-  const extra = [res.skipped && `${res.skipped} schon vorhanden`, res.ignored && `${res.ignored} Lieferanten übersprungen`].filter(Boolean).join(", ");
-  if (!res.add.length) { toast(`Keine neuen Kunden in der Datei${extra ? ` (${extra})` : ""}.`, true); return; }
-  confirmBox(`${res.add.length} Kunden importieren?`, `${res.add.slice(0, 5).map(c => `${esc(c.customerNo)} ${esc(c.name)}`).join("<br>")}${res.add.length > 5 ? "<br>…" : ""}${extra ? `<br><br>${esc(extra)}.` : ""}`, "Importieren", async () => {
+  const known = new Set((sett().suppliers || []).map(n => n.toLowerCase()));
+  const sup = [...new Set(res.suppliers)].filter(n => !known.has(n.toLowerCase()));
+  if (!res.add.length && !sup.length) { toast(`Nichts Neues in der Datei${res.skipped ? ` (${res.skipped} Kunden schon vorhanden)` : ""}.`, true); return; }
+  const text = [res.add.length && `<b>${res.add.length} Kunden</b>: ${res.add.slice(0, 5).map(c => `${esc(c.customerNo)} ${esc(c.name)}`).join(", ")}${res.add.length > 5 ? ", …" : ""}`,
+    sup.length && `<b>${sup.length} Lieferanten</b> als Vorschläge für Ausgaben: ${sup.slice(0, 5).map(esc).join(", ")}${sup.length > 5 ? ", …" : ""}`,
+    res.skipped && `${res.skipped} Kunden sind schon vorhanden und werden übersprungen.`].filter(Boolean).join("<br><br>");
+  confirmBox("CSV importieren?", text, "Importieren", async () => {
     let done = 0;
     for (const c of res.add) { if (!await saveDoc("customers", uid(), { ...c, createdAt: new Date().toISOString() })) break; done++; }
-    if (done) toast(`${done} Kunden importiert`);
+    if (done < res.add.length) return;
+    if (sup.length && !await saveSettings({ suppliers: [...(sett().suppliers || []), ...sup] })) return;
+    toast([done && `${done} Kunden`, sup.length && `${sup.length} Lieferanten`].filter(Boolean).join(" und ") + " importiert");
   }, false);
 }
 
@@ -1135,6 +1155,11 @@ document.addEventListener("keydown", e => {
   if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.clickable")) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener("input", e => {
+  if (e.target.id === "e-party") {
+    const cat = lastCategory(new FormData(e.target.form).get("kind"), e.target.value);
+    if (cat && $("#e-cat")) $("#e-cat").value = cat;
+    return;
+  }
   if (e.target.dataset.input === "search") { F.q = e.target.value; $("#ent-list").innerHTML = entriesRows(); return; }
   const row = e.target.closest("#items .item-row[data-i]");
   if (row && ed) {
