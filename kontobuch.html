@@ -458,7 +458,7 @@ function renderNav() {
     <span>${l}</span>${k === "invoices" && overdue ? `<span class="count" title="überfällig">${overdue}</span>` : ""}</button>`).join("");
   const s = sett();
   $("#brand-sub").textContent = s.name || "Buchhaltung";
-  const st = { pending: ["", "Verbinde …"], ok: ["ok", "Gespeichert in diesem Artifact"], none: ["err", "Kein Datenspeicher"], err: ["err", "Verbindung unterbrochen"] }[S.conn];
+  const st = { pending: ["", "Verbinde …"], ok: ["ok", "Daten gespeichert"], none: ["err", "Kein Datenspeicher"], err: ["err", "Verbindung unterbrochen"] }[S.conn];
   $("#rail-foot").innerHTML = `<span><i class="dot ${st[0]}"></i>${st[1]}</span>${s.kleinunternehmer ? "<span>Kleinunternehmer · § 19 UStG</span>" : "<span>Regelbesteuerung</span>"}`;
 }
 function render() {
@@ -659,7 +659,7 @@ function vSettings() {
       <div class="f full"><label for="s-intro">Einleitungstext</label><textarea id="s-intro" name="intro">${esc(s.intro)}</textarea></div>
       <div class="f full"><label for="s-closing">Schlusstext</label><textarea id="s-closing" name="closing">${esc(s.closing)}</textarea></div>
     </div></fieldset>
-    <div class="form-foot"><span class="muted small">Gespeichert wird in diesem privaten Artifact. Nur du kannst die Daten lesen und ändern.</span><button class="btn primary" type="submit">Speichern</button></div>
+    <div class="form-foot"><span class="muted small">Änderungen werden sofort gespeichert.</span><button class="btn primary" type="submit">Speichern</button></div>
   </form>
   <section class="sheet-card panel">
     <h2>Datensicherung</h2>

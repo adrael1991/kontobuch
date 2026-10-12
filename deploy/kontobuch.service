@@ -1,0 +1,13 @@
+[Unit]
+Description=Kontobuch
+After=network.target
+
+[Service]
+User=kontobuch
+Environment=KONTOBUCH_DATA=/var/lib/kontobuch
+Environment=KONTOBUCH_PORT=8080
+ExecStart=/usr/bin/python3 /opt/kontobuch/server.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

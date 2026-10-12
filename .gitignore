@@ -1,0 +1,11 @@
+# Geschäftsdaten gehören nie ins Repository.
+data/
+*.db
+*.db-wal
+*.db-shm
+belege/
+Kontobuch-Backup-*.json
+Kontobuch-Journal-*.csv
+Rechnung_*.pdf
+Stornorechnung_*.pdf
+__pycache__/
