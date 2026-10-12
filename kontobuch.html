@@ -594,8 +594,8 @@ function vCustomers() {
   <div class="head"><div class="head-l"><h3>Stammdaten</h3><h1>Kunden</h1></div>
     <div class="toolbar"><button class="btn primary" data-act="new-customer">Kunde anlegen</button></div></div>
   ${!allReady() ? loading() : list.length ? `<div class="table-wrap sheet-card"><table>
-    <thead><tr><th>Name</th><th>Ort</th><th>E-Mail</th><th class="r">Umsatz gesamt</th></tr></thead><tbody>
-    ${list.map(c => `<tr class="clickable" data-act="edit-customer" data-id="${c.id}"><td>${esc(c.name)}${c.contact ? `<span class="sub">${esc(c.contact)}</span>` : ""}</td>
+    <thead><tr><th>Nr.</th><th>Name</th><th>Ort</th><th>E-Mail</th><th class="r">Umsatz gesamt</th></tr></thead><tbody>
+    ${list.map(c => `<tr class="clickable" data-act="edit-customer" data-id="${c.id}"><td class="mono">${esc(c.customerNo || "–")}</td><td>${esc(c.name)}${c.contact ? `<span class="sub">${esc(c.contact)}</span>` : ""}</td>
       <td>${esc([c.zip, c.city].filter(Boolean).join(" ")) || "–"}</td><td class="small">${esc(c.email || "–")}</td><td class="amt">${eur(rev[c.id] || 0)}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="sheet-card empty"><h2>Noch keine Kunden</h2><p>Lege deine Kunden mit Anschrift an. Beim Schreiben einer Rechnung füllst du den Empfänger dann mit einem Klick aus.</p><button class="btn primary" data-act="new-customer">Ersten Kunden anlegen</button></div>`}`;
 }
@@ -675,10 +675,12 @@ function nextNumber(n) {
 }
 
 /* ---------- customers ---------- */
+const nextCustNo = () => String(Math.max(1000, ...S.customers.map(c => parseInt(c.customerNo, 10) || 0)) + 1);
 function customerForm(c = {}) {
+  c = { ...c, customerNo: c.customerNo || nextCustNo() };
   const fld = (k, l, cls = "", attrs = "") => `<div class="f ${cls}"><label for="c-${k}">${l}</label><input id="c-${k}" name="${k}" value="${esc(c[k] ?? "")}" ${attrs}></div>`;
   openModal(c.id ? "Kunde bearbeiten" : "Neuer Kunde", `<form class="form" data-form="customer" data-id="${c.id || ""}" autocomplete="off"><div class="fields">
-    ${fld("name", "Firma / Name", "full", "required autofocus")}${fld("contact", "Ansprechpartner:in", "full")}
+    ${fld("customerNo", "Kundennummer", "s2", "required")}${fld("name", "Firma / Name", "s4", "required autofocus")}${fld("contact", "Ansprechpartner:in", "full")}
     ${fld("street", "Straße und Hausnummer", "full")}${fld("zip", "PLZ", "s2")}${fld("city", "Ort", "s4")}
     ${fld("country", "Land (falls nicht Deutschland)")}${fld("email", "E-Mail", "", 'type="email"')}
     ${fld("vatId", "USt-IdNr. des Kunden (optional)", "full")}
@@ -815,6 +817,7 @@ function invoiceDoc(extra) {
   const t = calcInv(ed);
   return { status: ed.status, number: ed.number || null, customerId: ed.customerId || null, recipient: ed.recipient, date: ed.date, serviceDate: ed.serviceDate,
     dueDays: ed.dueDays, dueDate: addDays(ed.date, ed.dueDays), intro: ed.intro, notes: ed.notes, items: ed.items, ku: ed.ku,
+    customerNo: S.customers.find(c => c.id === ed.customerId)?.customerNo || null,
     net: t.net, vat: t.vat, gross: t.gross, createdAt: ed.createdAt || new Date().toISOString(), ...extra };
 }
 async function saveDraft() {
@@ -863,7 +866,7 @@ function paperHtml(inv) {
     <div class="ph"><div><b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div></div>
       <div class="addr small" style="text-align:right">${esc([s.email, s.phone, s.web].filter(Boolean).join("\n"))}</div></div>
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(inv.recipient)}</div></div>
-      <div class="meta"><span>Rechnungsnr.</span><span class="mono">${esc(inv.number)}</span><span>Rechnungsdatum</span><span>${fDate(inv.date)}</span>
+      <div class="meta"><span>Rechnungsnr.</span><span class="mono">${esc(inv.number)}</span>${inv.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(inv.customerNo)}</span>` : ""}<span>Rechnungsdatum</span><span>${fDate(inv.date)}</span>
       <span>Leistungsdatum</span><span>${esc(inv.serviceDate || fDate(inv.date))}</span>${inv.storno ? "" : `<span>Fällig bis</span><span>${fDate(inv.dueDate)}</span>`}</div></div>
     <div><h2>${inv.storno ? "Stornorechnung" : "Rechnung"}</h2>${inv.storno ? `<p>Storno zu Rechnung ${esc(inv.refNumber)} vom ${fDate(inv.refDate)}.</p>` : inv.intro ? `<p>${esc(inv.intro)}</p>` : ""}</div>
     <table><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th>${inv.ku ? "" : '<th class="r">USt</th>'}<th class="r">Gesamt</th></tr></thead><tbody>
@@ -899,7 +902,7 @@ function invoicePdf(inv) {
   doc.setDrawColor(170); doc.line(L, 51.2, L + 85, 51.2);
   black(); doc.setFontSize(10); doc.text(doc.splitTextToSize(inv.recipient || "", 85).slice(0, 6), L, 57);
   // Infoblock
-  const meta = [["Rechnungsnr.", inv.number], ["Rechnungsdatum", fDate(inv.date)], ["Leistungsdatum", inv.serviceDate || fDate(inv.date)]];
+  const meta = [["Rechnungsnr.", inv.number], ...(inv.customerNo ? [["Kundennr.", inv.customerNo]] : []), ["Rechnungsdatum", fDate(inv.date)], ["Leistungsdatum", inv.serviceDate || fDate(inv.date)]];
   if (!inv.storno) meta.push(["Fällig bis", fDate(inv.dueDate)]);
   y = 57; doc.setFontSize(9);
   meta.forEach(([k, v]) => { gray(); doc.text(k, 125, y); black(); doc.text(String(v || ""), R, y, { align: "right" }); y += 5; });
@@ -1098,7 +1101,8 @@ document.addEventListener("submit", async e => {
   if (kind === "customer") {
     const fd = new FormData(f); const id = f.dataset.id || uid();
     const data = Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v).trim()]));
-    if (!data.name) return;
+    if (!data.name || !data.customerNo) return;
+    if (S.customers.some(c => c.id !== id && c.customerNo === data.customerNo)) { toast(`Die Kundennummer ${data.customerNo} ist schon vergeben.`, true); return; }
     const old = S.customers.find(c => c.id === id);
     if (await saveDoc("customers", id, { ...data, createdAt: old?.createdAt || new Date().toISOString() })) {
       closeModal(); toast("Kunde gespeichert");
