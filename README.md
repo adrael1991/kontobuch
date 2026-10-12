@@ -58,5 +58,6 @@ Es gibt keinen Login. Jeder im Heimnetz kann die App öffnen. Gib Port 8080 nich
 
 ```sh
 python3 server.py                    # http://localhost:8080, Daten in ./data
-python3 -m unittest discover tests   # Tests
+python3 -m unittest discover tests   # Server-Tests
+node tests/logic.test.js             # Rechnungsnummern, Kunden-Import
 ```
