@@ -1,0 +1,1131 @@
+<title>Kontobuch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ledger book — a narrow tab rail on the left, one working sheet on the right; amounts set in mono like a Kontobuch column, income in green ink, expenses in red ink, final sums double-ruled. */
+:root {
+  --paper: #f3f5f1;
+  --sheet: #ffffff;
+  --ink: #1c2622;
+  --muted: #5d6b66;
+  --rule: #d8ded8;
+  --rule-strong: #b9c3bc;
+  --accent: #1e6a50;
+  --accent-soft: #e2efe8;
+  --on-accent: #ffffff;
+  --haben: #1e6a50;
+  --soll: #a8372b;
+  --soll-soft: #f7e5e2;
+  --warn: #8a5a00;
+  --warn-soft: #f8eccf;
+  --info: #2b5b84;
+  --info-soft: #e1ebf4;
+  --shadow: 0 1px 2px rgb(28 38 34 / .06), 0 8px 24px rgb(28 38 34 / .06);
+  --f-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
+  --f-body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111715; --sheet: #182120; --ink: #e3ebe7; --muted: #95a49e;
+    --rule: #28332f; --rule-strong: #3a4842; --accent: #5cbf95; --accent-soft: #1d3329;
+    --on-accent: #0d1a14; --haben: #6fcca2; --soll: #ec8478; --soll-soft: #3a2220;
+    --warn: #e5b350; --warn-soft: #362b14; --info: #8dbbe4; --info-soft: #1b2a38;
+    --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111715; --sheet: #182120; --ink: #e3ebe7; --muted: #95a49e;
+  --rule: #28332f; --rule-strong: #3a4842; --accent: #5cbf95; --accent-soft: #1d3329;
+  --on-accent: #0d1a14; --haben: #6fcca2; --soll: #ec8478; --soll-soft: #3a2220;
+  --warn: #e5b350; --warn-soft: #362b14; --info: #8dbbe4; --info-soft: #1b2a38;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--f-body); }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
+h2 { font-size: 1.2rem; font-weight: 700; }
+h3 { font-size: .78rem; font-weight: 600; font-family: var(--f-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+p { margin: 0; }
+a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono, .amt { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.amt { white-space: nowrap; text-align: right; }
+.in { color: var(--haben); } .out { color: var(--soll); }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+
+.app { display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; }
+.rail { border-right: 1px solid var(--rule); padding: 24px 12px; display: flex; flex-direction: column; gap: 24px; position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; }
+.brand { padding: 0 12px; display: flex; flex-direction: column; gap: 2px; }
+.brand b { font-family: var(--f-display); font-size: 1.35rem; letter-spacing: -.01em; }
+.brand span { font-size: .78rem; color: var(--muted); }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav button { all: unset; cursor: pointer; padding: 8px 12px; border-radius: var(--r); display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted); font-weight: 500; }
+.nav button:hover { color: var(--ink); background: var(--accent-soft); }
+.nav button[aria-current="page"] { color: var(--ink); background: var(--sheet); box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
+.nav button:focus-visible { outline: 2px solid var(--accent); }
+.nav .count { font-family: var(--f-mono); font-size: .75rem; background: var(--warn-soft); color: var(--warn); padding: 0 6px; border-radius: 99px; }
+.rail-foot { margin-top: auto; padding: 0 12px; font-size: .78rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+.dot.ok { background: var(--haben); } .dot.err { background: var(--soll); }
+
+main { padding-inline: clamp(16px, 4vw, 48px); padding-block: 32px 64px; min-width: 0; display: flex; flex-direction: column; gap: 28px; max-width: 1180px; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.head-l { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.btn { cursor: pointer; border: 1px solid var(--rule-strong); background: var(--sheet); padding: 7px 14px; border-radius: var(--r); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover { border-color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--soll); }
+.btn.sm { padding: 3px 10px; font-size: .85rem; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { border-color: var(--rule-strong); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.icon-btn { all: unset; cursor: pointer; width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r); font-size: 1.3rem; color: var(--muted); }
+.icon-btn:hover { background: var(--accent-soft); color: var(--ink); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); }
+
+select.year { border: 1px solid var(--rule-strong); background: var(--sheet); border-radius: var(--r); padding: 6px 10px; font-family: var(--f-mono); }
+
+.sheet-card { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); box-shadow: var(--shadow); }
+.section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); }
+.kpi { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; border-left: 1px solid var(--rule); }
+.kpi:first-child { border-left: 0; padding-left: 0; }
+.kpi .v { font-family: var(--f-mono); font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.kpi .s { font-size: .82rem; color: var(--muted); }
+
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--rule-strong); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+th.r, td.r { text-align: right; }
+td.actions { text-align: right; white-space: nowrap; }
+td.actions .btn + .btn { margin-left: 4px; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover td { background: var(--accent-soft); }
+tr.total td { border-top: 1px solid var(--ink); font-weight: 600; }
+tr.grand td { border-bottom: 3px double var(--ink); font-weight: 600; }
+.sub { display: block; font-size: .82rem; color: var(--muted); }
+.strike { text-decoration: line-through; color: var(--muted); }
+
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: .76rem; font-weight: 600; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+.chip.draft { background: var(--rule); color: var(--muted); }
+.chip.open { background: var(--info-soft); color: var(--info); }
+.chip.overdue { background: var(--warn-soft); color: var(--warn); }
+.chip.paid { background: var(--accent-soft); color: var(--haben); }
+.chip.cancelled { background: var(--soll-soft); color: var(--soll); }
+.chip.in { background: var(--accent-soft); color: var(--haben); }
+.chip.out { background: var(--soll-soft); color: var(--soll); }
+
+.filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.filters button { cursor: pointer; border: 1px solid var(--rule); background: transparent; padding: 4px 12px; border-radius: 99px; font-size: .85rem; color: var(--muted); }
+.filters button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+input.search { border: 1px solid var(--rule-strong); background: var(--sheet); border-radius: var(--r); padding: 6px 10px; min-width: 0; width: 220px; max-width: 100%; }
+
+.meter { display: flex; flex-direction: column; gap: 6px; }
+.meter .bar { height: 8px; background: var(--rule); border-radius: 99px; overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.meter .bar i.warn { background: var(--warn); } .meter .bar i.crit { background: var(--soll); }
+.meter .row { display: flex; justify-content: space-between; gap: 8px; font-size: .85rem; }
+.panel { padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+.note { font-size: .85rem; color: var(--muted); border-left: 2px solid var(--rule-strong); padding-left: 12px; }
+.note.warn { border-color: var(--warn); color: var(--ink); }
+
+.empty { padding: 36px 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.empty p { max-width: 52ch; color: var(--muted); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.steps li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.steps li:last-child { border-bottom: 0; }
+.steps .tick { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--rule-strong); display: grid; place-items: center; font-size: .75rem; flex: none; font-family: var(--f-mono); color: var(--muted); }
+.steps .done .tick { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.steps .done span.t { color: var(--muted); text-decoration: line-through; }
+.steps .t { flex: 1; min-width: 0; }
+
+.banner { padding: 12px 16px; border-radius: var(--r); background: var(--warn-soft); color: var(--ink); font-size: .9rem; }
+
+/* forms */
+.form { display: flex; flex-direction: column; gap: 16px; }
+.fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 14px; }
+.f { display: flex; flex-direction: column; gap: 4px; min-width: 0; grid-column: span 3; }
+.f.full { grid-column: 1 / -1; } .f.s2 { grid-column: span 2; } .f.s4 { grid-column: span 4; } .f.s1 { grid-column: span 1; }
+.f label, .lbl { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.f input, .f select, .f textarea, .item-row input, .item-row select { border: 1px solid var(--rule-strong); background: var(--sheet); border-radius: var(--r); padding: 7px 10px; width: 100%; min-width: 0; }
+.f textarea { resize: vertical; min-height: 76px; }
+.f .hint { font-size: .78rem; color: var(--muted); }
+.check { display: flex; gap: 10px; align-items: flex-start; }
+.check input { margin-top: 4px; accent-color: var(--accent); }
+fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+legend { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; margin-bottom: 8px; padding: 0; }
+.form-foot { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+.form-foot .grp { display: flex; gap: 8px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r); overflow: hidden; }
+.seg label { padding: 6px 14px; cursor: pointer; font-weight: 500; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg input:checked + span { color: var(--on-accent); }
+.seg label:has(input:checked) { background: var(--accent); color: var(--on-accent); }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.items { display: flex; flex-direction: column; gap: 6px; }
+.item-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px 104px 76px 100px 32px; gap: 6px; align-items: center; }
+.item-row.ku { grid-template-columns: minmax(0, 1fr) 72px 72px 104px 100px 32px; }
+.item-row output { font-family: var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.item-head { font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.item-head span:nth-child(n+2) { text-align: right; }
+.totals { margin-left: auto; width: min(320px, 100%); display: flex; flex-direction: column; gap: 4px; }
+.totals div { display: flex; justify-content: space-between; gap: 12px; }
+.totals .g { border-top: 1px solid var(--ink); border-bottom: 3px double var(--ink); padding-block: 4px; font-weight: 600; }
+
+/* modal */
+#modal { position: fixed; inset: 0; background: rgb(10 16 14 / .45); display: flex; align-items: flex-start; justify-content: center; padding: max(24px, env(safe-area-inset-top, 0px)) 16px 24px; overflow-y: auto; z-index: 20; }
+.dialog { background: var(--sheet); border-radius: 10px; width: min(640px, 100%); box-shadow: 0 20px 60px rgb(0 0 0 / .3); display: flex; flex-direction: column; }
+.dialog.wide { width: min(960px, 100%); }
+.dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--rule); gap: 12px; }
+.dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+/* invoice preview, DIN 5008 flavour */
+.paper { background: #fff; color: #1a1a1a; border: 1px solid var(--rule); padding: 40px 44px; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 22px; color-scheme: light; }
+.paper .ph { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.paper .ph b { font-family: var(--f-display); font-size: 20px; }
+.paper .addr { white-space: pre-line; }
+.paper .sender { font-size: 10px; color: #666; border-bottom: 1px solid #bbb; display: inline-block; margin-bottom: 4px; }
+.paper .meta { display: grid; grid-template-columns: auto auto; gap: 2px 18px; align-self: flex-start; }
+.paper .meta span:nth-child(odd) { color: #666; }
+.paper table th { color: #666; border-bottom-color: #999; }
+.paper table td { border-bottom-color: #ddd; }
+.paper .foot { border-top: 1px solid #ccc; padding-top: 10px; font-size: 11px; color: #555; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.paper h2 { color: #1a1a1a; }
+
+#toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: var(--r); font-size: .9rem; z-index: 30; max-width: calc(100% - 32px); box-shadow: var(--shadow); }
+#toast.err { background: var(--soll); color: #fff; }
+
+@media (max-width: 960px) {
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi:nth-child(3) { border-left: 0; padding-left: 0; }
+  .kpi:nth-child(n+3) { border-top: 1px solid var(--rule); }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--rule); padding: 14px 0 0; gap: 10px; }
+  .brand { padding-inline: 16px; flex-direction: row; align-items: baseline; gap: 10px; }
+  .nav { flex-direction: row; overflow-x: auto; padding: 0 12px 8px; }
+  .nav button { white-space: nowrap; }
+  .nav button[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); background: transparent; }
+  .rail-foot { display: none; }
+  main { padding-block: 20px 48px; gap: 22px; }
+  h1 { font-size: 1.5rem; }
+  .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .f, .f.s2, .f.s4 { grid-column: 1 / -1; } .f.s1 { grid-column: span 1; }
+  .item-row, .item-row.ku { grid-template-columns: 1fr 1fr 1fr; }
+  .item-row input[data-f="desc"] { grid-column: 1 / -1; }
+  .item-row output { grid-column: span 2; }
+  .item-head { display: none; }
+  .paper { padding: 24px 18px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dialog { animation: rise .16s ease-out; }
+  @keyframes rise { from { transform: translateY(8px); opacity: .6; } to { transform: none; opacity: 1; } }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>Kontobuch</b><span id="brand-sub">Buchhaltung</span></div>
+    <nav class="nav" id="nav" aria-label="Bereiche"></nav>
+    <div class="rail-foot" id="rail-foot"><span><i class="dot"></i>Verbinde …</span></div>
+  </aside>
+  <main id="main" aria-live="polite"></main>
+</div>
+<div id="modal" hidden></div>
+<div id="toast" hidden role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+"use strict";
+/* ---------- constants ---------- */
+const OUT_CATS = [
+  ["waren", "Waren, Roh- und Hilfsstoffe"],
+  ["fremd", "Fremdleistungen"],
+  ["gwg", "Geringwertige Wirtschaftsgüter (bis 800 € netto)"],
+  ["software", "Software & Lizenzen"],
+  ["telekom", "Telefon & Internet"],
+  ["buero", "Bürobedarf & Porto"],
+  ["raum", "Raumkosten & Miete"],
+  ["fahrt", "Fahrtkosten & Kfz"],
+  ["reise", "Reisekosten"],
+  ["werbung", "Werbung & Marketing"],
+  ["fortbildung", "Fortbildung & Fachliteratur"],
+  ["versicherung", "Versicherungen & Beiträge"],
+  ["beratung", "Steuerberatung & Buchführung"],
+  ["bank", "Kontoführung & Gebühren"],
+  ["bewirtung", "Bewirtung (70 % abzugsfähig)"],
+  ["sonstige", "Sonstige Betriebsausgaben"],
+];
+const IN_CATS = [
+  ["umsatz", "Umsatz ohne Rechnung"],
+  ["sonstige_in", "Sonstige Betriebseinnahmen"],
+];
+const CAT = Object.fromEntries([...OUT_CATS, ...IN_CATS]);
+const KU_PREV = 25000, KU_CUR = 100000;
+const VIEWS = [
+  ["overview", "Übersicht"],
+  ["invoices", "Rechnungen"],
+  ["entries", "Einnahmen & Ausgaben"],
+  ["customers", "Kunden"],
+  ["euer", "EÜR"],
+  ["settings", "Einstellungen"],
+];
+const SELLER_FIELDS = ["name", "owner", "street", "zip", "city", "email", "phone", "web", "taxNo", "vatId", "bank", "iban", "bic"];
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fEur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+const fNum = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eur = n => fEur.format(n || 0);
+const num = n => fNum.format(n || 0);
+const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+const parseNum = v => {
+  let s = String(v ?? "").trim().replace(/\s|€/g, "");
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+};
+const numIn = n => (n === "" || n == null) ? "" : String(n).replace(".", ",");
+const pad = n => String(n).padStart(2, "0");
+const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = () => isoDate(new Date());
+const addDays = (iso, days) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + Number(days || 0)); return isoDate(d); };
+const fDate = iso => iso ? iso.split("-").reverse().join(".") : "–";
+const yOf = iso => iso ? Number(iso.slice(0, 4)) : null;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+/* ---------- state ---------- */
+const S = { settings: {}, customers: [], invoices: [], entries: [], ready: {}, conn: "pending" };
+let db = null, assets = null, downloads = null;
+let view = VIEWS.some(v => v[0] === location.hash.slice(1)) ? location.hash.slice(1) : (lsGet("kb.view") || "overview");
+let year = new Date().getFullYear();
+const F = { inv: "all", ent: "all", q: "" };
+let ed = null; // invoice editor state
+
+const DEF = { kleinunternehmer: true, invoicePrefix: `RE-${new Date().getFullYear()}-`, nextInvoiceNo: 1, numberPad: 3, paymentDays: 14,
+  intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
+  closing: "Mit freundlichen Grüßen" };
+const sett = () => ({ ...DEF, ...S.settings });
+const allReady = () => ["settings", "customers", "invoices", "entries"].every(k => S.ready[k]);
+
+/* ---------- money logic ---------- */
+function calcInv(inv) {
+  let net = 0; const byRate = {};
+  for (const it of inv.items || []) {
+    const line = r2(parseNum(it.qty) * parseNum(it.price));
+    net += line;
+    const rate = inv.ku ? 0 : Number(it.vat || 0);
+    byRate[rate] = (byRate[rate] || 0) + line;
+  }
+  let vat = 0;
+  for (const [rate, base] of Object.entries(byRate)) vat += r2(base * Number(rate) / 100);
+  net = r2(net); vat = r2(vat);
+  return { net, vat, gross: r2(net + vat), byRate };
+}
+function entryParts(e) {
+  const rate = Number(e.vatRate || 0), gross = Number(e.gross || 0);
+  const net = rate ? r2(gross / (1 + rate / 100)) : gross;
+  return { gross, net, vat: r2(gross - net) };
+}
+const invState = inv => {
+  if (inv.status === "open" && inv.dueDate && inv.dueDate < today()) return "overdue";
+  return inv.status || "draft";
+};
+const STATUS_LABEL = { draft: "Entwurf", open: "Offen", overdue: "Überfällig", paid: "Bezahlt", cancelled: "Storniert" };
+const chip = st => `<span class="chip ${st}">${STATUS_LABEL[st]}</span>`;
+const custName = id => S.customers.find(c => c.id === id)?.name;
+const invTitle = inv => inv.recipient ? inv.recipient.split("\n")[0] : (custName(inv.customerId) || "Ohne Empfänger");
+
+/* Zufluss-Prinzip: Rechnungen zählen im Jahr der Zahlung. */
+function journal(y) {
+  const rows = [];
+  for (const inv of S.invoices) {
+    if (inv.status !== "paid" || yOf(inv.paidDate) !== y) continue;
+    const t = calcInv(inv);
+    rows.push({ src: "inv", id: inv.id, kind: "in", date: inv.paidDate, party: invTitle(inv), desc: `Rechnung ${inv.number}`, ref: inv.number,
+      category: "rechnung", gross: t.gross, net: t.net, vat: t.vat, ku: !!inv.ku });
+  }
+  for (const e of S.entries) {
+    if (yOf(e.date) !== y) continue;
+    const p = entryParts(e);
+    rows.push({ src: "entry", id: e.id, kind: e.kind, date: e.date, party: e.party, desc: e.desc, ref: e.ref || "", category: e.category,
+      gross: p.gross, net: p.net, vat: p.vat, ku: !!e.ku, receiptId: e.receiptId, receiptName: e.receiptName });
+  }
+  return rows.sort((a, b) => b.date.localeCompare(a.date));
+}
+function euer(y) {
+  const rows = journal(y);
+  const inc = { ku: 0, net: 0, vat: 0, other: 0 };
+  const out = {}; let vorsteuer = 0, nonDeductible = 0;
+  for (const r of rows) {
+    if (r.kind === "in") {
+      if (r.category === "sonstige_in") { inc.other += r.net; inc.vat += r.vat; }
+      else if (r.vat === 0 && r.ku) inc.ku += r.gross;
+      else { inc.net += r.net; inc.vat += r.vat; }
+    } else {
+      let amt = r.net;
+      vorsteuer += r.vat;
+      if (r.category === "bewirtung") { nonDeductible += r2(amt * 0.3); amt = r2(amt * 0.7); }
+      out[r.category] = (out[r.category] || 0) + amt;
+    }
+  }
+  const incTotal = r2(inc.ku + inc.net + inc.vat + inc.other);
+  const outTotal = r2(Object.values(out).reduce((a, b) => a + b, 0) + vorsteuer);
+  return { rows, inc, out, vorsteuer: r2(vorsteuer), nonDeductible: r2(nonDeductible), incTotal, outTotal, profit: r2(incTotal - outTotal) };
+}
+/* Gesamtumsatz nach § 19 UStG: vereinnahmte Entgelte. */
+function kuTurnover(y) {
+  return r2(journal(y).filter(r => r.kind === "in" && r.category !== "sonstige_in").reduce((a, r) => a + r.net, 0));
+}
+function years() {
+  const ys = new Set([new Date().getFullYear(), year]);
+  S.invoices.forEach(i => { if (i.date) ys.add(yOf(i.date)); if (i.paidDate) ys.add(yOf(i.paidDate)); });
+  S.entries.forEach(e => e.date && ys.add(yOf(e.date)));
+  return [...ys].sort((a, b) => b - a);
+}
+
+/* ---------- db writes ---------- */
+async function guard(fn, okMsg) {
+  if (!db) { toast("Der Datenspeicher ist in dieser Ansicht nicht verfügbar.", true); return false; }
+  try { const r = await fn(); if (okMsg) toast(okMsg); return r ?? true; }
+  catch (e) {
+    console.error(e);
+    const code = e?.code;
+    const msg = code === "quota_exceeded" ? "Speicher voll. Lösche alte Einträge oder exportiere ein Backup."
+      : code === "invalid_argument" ? "Speichern abgelehnt. Nur die Besitzerin oder der Besitzer dieses Kontobuchs kann Daten ändern."
+      : "Speichern fehlgeschlagen. Bitte versuche es gleich noch einmal.";
+    toast(msg, true); return false;
+  }
+}
+const saveSettings = patch => guard(() => db.doc("book/main").set({ ...sett(), ...patch, updatedAt: new Date().toISOString() }));
+const saveDoc = (coll, id, data) => guard(() => db.collection(coll).doc(id).set({ ...data, updatedAt: new Date().toISOString() }));
+const delDoc = (coll, id) => guard(() => db.collection(coll).doc(id).delete());
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg, err) {
+  const t = $("#toast"); t.textContent = msg; t.className = err ? "err" : ""; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, err ? 6000 : 2600);
+}
+
+/* ---------- modal ---------- */
+let lastFocus = null;
+function openModal(title, body, { wide } = {}) {
+  lastFocus = document.activeElement;
+  const m = $("#modal");
+  m.innerHTML = `<div class="dialog ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <header><h2 id="m-title">${esc(title)}</h2><button class="icon-btn" data-act="close" aria-label="Schließen">×</button></header>
+    <div class="dialog-body">${body}</div></div>`;
+  m.hidden = false;
+  ($("[autofocus]", m) || $("input,select,textarea", m) || $("button", m))?.focus();
+}
+function closeModal() { const m = $("#modal"); m.hidden = true; m.innerHTML = ""; ed = null; lastFocus?.focus?.(); }
+function confirmBox(title, text, yesLabel, onYes, danger = true) {
+  openModal(title, `<p>${text}</p><div class="form-foot"><span></span><div class="grp">
+    <button class="btn" data-act="close">Abbrechen</button>
+    <button class="btn ${danger ? "danger" : "primary"}" id="confirm-yes" autofocus>${esc(yesLabel)}</button></div></div>`);
+  $("#confirm-yes").onclick = async () => { $("#confirm-yes").disabled = true; await onYes(); closeModal(); };
+}
+
+/* ---------- render shell ---------- */
+function renderNav() {
+  const overdue = S.invoices.filter(i => invState(i) === "overdue").length;
+  $("#nav").innerHTML = VIEWS.map(([k, l]) => `<button data-act="nav" data-v="${k}" ${view === k ? 'aria-current="page"' : ""}>
+    <span>${l}</span>${k === "invoices" && overdue ? `<span class="count" title="überfällig">${overdue}</span>` : ""}</button>`).join("");
+  const s = sett();
+  $("#brand-sub").textContent = s.name || "Buchhaltung";
+  const st = { pending: ["", "Verbinde …"], ok: ["ok", "Gespeichert in diesem Artifact"], none: ["err", "Kein Datenspeicher"], err: ["err", "Verbindung unterbrochen"] }[S.conn];
+  $("#rail-foot").innerHTML = `<span><i class="dot ${st[0]}"></i>${st[1]}</span>${s.kleinunternehmer ? "<span>Kleinunternehmer · § 19 UStG</span>" : "<span>Regelbesteuerung</span>"}`;
+}
+function render() {
+  renderNav();
+  const fn = { overview: vOverview, invoices: vInvoices, entries: vEntries, customers: vCustomers, euer: vEuer, settings: vSettings }[view] || vOverview;
+  let banner = "";
+  if (S.conn === "none") banner = `<div class="banner">Der Datenspeicher ist hier nicht verfügbar. Öffne das Kontobuch angemeldet auf claude.ai, damit deine Buchungen gespeichert werden.</div>`;
+  if (S.conn === "err") banner = `<div class="banner">Die Verbindung zum Datenspeicher wurde unterbrochen. Lade die Seite neu.</div>`;
+  $("#main").innerHTML = banner + fn();
+}
+const yearSel = () => `<label class="muted small" for="year-sel">Jahr</label>
+  <select class="year" id="year-sel" data-change="year">${years().map(y => `<option ${y === year ? "selected" : ""}>${y}</option>`).join("")}</select>`;
+const loading = () => `<div class="empty"><p>Lade deine Daten …</p></div>`;
+
+/* ---------- views ---------- */
+function vOverview() {
+  const s = sett();
+  const e = euer(year);
+  const open = S.invoices.filter(i => i.status === "open").sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+  const openSum = open.reduce((a, i) => a + calcInv(i).gross, 0);
+  const overdue = open.filter(i => invState(i) === "overdue");
+  const steps = [
+    [!!(s.name && s.street && s.taxNo), "Firmendaten und Steuernummer eintragen", "settings", "Einstellungen öffnen"],
+    [S.customers.length > 0, "Ersten Kunden anlegen", "new-customer", "Kunde anlegen"],
+    [S.invoices.length > 0, "Erste Rechnung schreiben", "new-invoice", "Rechnung schreiben"],
+    [S.entries.length > 0, "Erste Ausgabe mit Beleg erfassen", "new-out", "Ausgabe erfassen"],
+  ];
+  const onboarding = allReady() && steps.some(x => !x[0]) ? `
+    <section class="section sheet-card panel">
+      <div class="section-head"><h2>Los geht's</h2><span class="muted small">${steps.filter(x => x[0]).length} von 4 erledigt</span></div>
+      <ol class="steps">${steps.map(([done, t, act, l], i) => `<li class="${done ? "done" : ""}"><span class="tick">${done ? "✓" : i + 1}</span><span class="t">${t}</span>
+        ${done ? "" : act === "settings" ? `<button class="btn sm" data-act="nav" data-v="settings">${l}</button>` : `<button class="btn sm" data-act="${act}">${l}</button>`}</li>`).join("")}</ol>
+    </section>` : "";
+  const recent = journal(year).slice(0, 6);
+  return `
+  <div class="head"><div class="head-l"><h3>Geschäftsjahr</h3><h1>Übersicht ${year}</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="new-out">Ausgabe erfassen</button><button class="btn primary" data-act="new-invoice">Neue Rechnung</button></div></div>
+  ${onboarding}
+  <div class="kpis">
+    <div class="kpi"><h3>Einnahmen</h3><span class="v in">${eur(e.incTotal)}</span><span class="s">zugeflossen ${year}</span></div>
+    <div class="kpi"><h3>Ausgaben</h3><span class="v out">${eur(e.outTotal)}</span><span class="s">abzugsfähig ${year}</span></div>
+    <div class="kpi"><h3>Gewinn</h3><span class="v">${eur(e.profit)}</span><span class="s">vorläufig, nach EÜR</span></div>
+    <div class="kpi"><h3>Offen</h3><span class="v">${eur(openSum)}</span><span class="s">${open.length} Rechnung${open.length === 1 ? "" : "en"}${overdue.length ? `, <b style="color:var(--warn)">${overdue.length} überfällig</b>` : ""}</span></div>
+  </div>
+  <div class="grid2">
+    <section class="section">
+      <div class="section-head"><h2>Offene Rechnungen</h2><button class="btn ghost sm" data-act="nav" data-v="invoices">Alle Rechnungen</button></div>
+      ${!allReady() ? loading() : open.length ? `<div class="table-wrap sheet-card"><table>
+        <thead><tr><th>Nr.</th><th>Kunde</th><th>Fällig</th><th class="r">Betrag</th><th></th></tr></thead><tbody>
+        ${open.map(i => `<tr><td class="mono">${esc(i.number)}</td><td>${esc(invTitle(i))}</td><td>${fDate(i.dueDate)} ${invState(i) === "overdue" ? chip("overdue") : ""}</td>
+          <td class="amt">${eur(calcInv(i).gross)}</td><td class="actions"><button class="btn sm" data-act="mark-paid" data-id="${i.id}">Bezahlt</button></td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="sheet-card empty"><p>Keine offenen Rechnungen. Alles bezahlt.</p></div>`}
+      <div class="section-head" style="margin-top:12px"><h2>Letzte Buchungen</h2><button class="btn ghost sm" data-act="nav" data-v="entries">Alle Buchungen</button></div>
+      ${!allReady() ? loading() : recent.length ? `<div class="table-wrap sheet-card"><table><tbody>
+        ${recent.map(r => `<tr><td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || CAT[r.category] || "")}</span></td>
+          <td class="amt ${r.kind}">${r.kind === "out" ? "−" : "+"}${num(r.gross)}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="sheet-card empty"><p>Noch keine Buchungen in ${year}. Bezahlte Rechnungen und erfasste Ausgaben erscheinen hier.</p></div>`}
+    </section>
+    <aside class="section">${kuPanel()}</aside>
+  </div>`;
+}
+function kuPanel() {
+  const s = sett();
+  const cy = new Date().getFullYear();
+  const cur = kuTurnover(cy), prev = kuTurnover(cy - 1);
+  const bar = (v, max) => { const p = Math.min(100, v / max * 100); return `<div class="bar"><i class="${p >= 100 ? "crit" : p >= 80 ? "warn" : ""}" style="width:${p.toFixed(1)}%"></i></div>`; };
+  if (!s.kleinunternehmer) return `<div class="sheet-card panel"><h2>Umsatzsteuer</h2><p class="small muted">Du rechnest mit Umsatzsteuer ab. Die Summen für deine Umsatzsteuer-Voranmeldung findest du unter EÜR.</p></div>`;
+  let msg = "";
+  if (cur > KU_CUR) msg = `<p class="note warn">Du hast ${eur(KU_CUR)} in ${cy} überschritten. Ab dem Umsatz, der die Grenze überschreitet, gilt die Regelbesteuerung. Sprich bitte mit deiner Steuerberatung und stelle in den Einstellungen um.</p>`;
+  else if (cur > KU_PREV) msg = `<p class="note warn">Du liegst in ${cy} über ${eur(KU_PREV)}. Damit bist du ab ${cy + 1} kein Kleinunternehmer mehr.</p>`;
+  return `<div class="sheet-card panel">
+    <div><h2>Kleinunternehmergrenze</h2><p class="small muted">§ 19 UStG: Umsatz im Vorjahr höchstens ${eur(KU_PREV)}, im laufenden Jahr höchstens ${eur(KU_CUR)}.</p></div>
+    <div class="meter"><div class="row"><span>${cy} (laufend)</span><span class="mono">${eur(cur)} / ${num(KU_CUR).replace(",00", "")} €</span></div>${bar(cur, KU_CUR)}</div>
+    <div class="meter"><div class="row"><span>${cy} für ${cy + 1}</span><span class="mono">${eur(cur)} / ${num(KU_PREV).replace(",00", "")} €</span></div>${bar(cur, KU_PREV)}</div>
+    <div class="meter"><div class="row"><span>${cy - 1} (Vorjahr)</span><span class="mono">${eur(prev)} / ${num(KU_PREV).replace(",00", "")} €</span></div>${bar(prev, KU_PREV)}</div>
+    ${msg}
+    <p class="small muted">Gezählt werden bezahlte Rechnungen und Umsätze ohne Rechnung. Umsätze aus der Zeit vor dem Kontobuch kannst du als Einnahme nachtragen.</p>
+  </div>`;
+}
+
+function vInvoices() {
+  const list = S.invoices.filter(i => {
+    const st = invState(i);
+    if (F.inv !== "all" && !(F.inv === st || (F.inv === "open" && st === "overdue"))) return false;
+    return F.inv !== "all" || yOf(i.date) === year || i.status === "draft" || i.status === "open";
+  }).sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.number || "").localeCompare(a.number || ""));
+  const filt = [["all", `Alle ${year}`], ["draft", "Entwürfe"], ["open", "Offen"], ["overdue", "Überfällig"], ["paid", "Bezahlt"], ["cancelled", "Storniert"]];
+  return `
+  <div class="head"><div class="head-l"><h3>Ausgangsrechnungen</h3><h1>Rechnungen</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn primary" data-act="new-invoice">Neue Rechnung</button></div></div>
+  <div class="filters" role="group" aria-label="Filter">${filt.map(([k, l]) => `<button data-act="f-inv" data-v="${k}" aria-pressed="${F.inv === k}">${l}</button>`).join("")}</div>
+  ${!allReady() ? loading() : list.length ? `<div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Nr.</th><th>Datum</th><th>Empfänger</th><th>Status</th><th class="r">Betrag</th><th></th></tr></thead><tbody>
+    ${list.map(i => { const st = invState(i); const t = calcInv(i); return `<tr class="clickable" data-act="open-invoice" data-id="${i.id}">
+      <td class="mono">${i.number ? esc(i.number) : '<span class="muted">—</span>'}${i.storno ? `<span class="sub">Storno zu ${esc(i.refNumber)}</span>` : ""}</td>
+      <td class="mono small">${fDate(i.date)}</td><td>${esc(invTitle(i))}</td><td>${chip(st)}${i.paidDate && st === "paid" ? `<span class="sub">${fDate(i.paidDate)}</span>` : ""}</td>
+      <td class="amt ${st === "cancelled" ? "strike" : ""}">${eur(t.gross)}</td>
+      <td class="actions">${st === "open" || st === "overdue" ? `<button class="btn sm" data-act="mark-paid" data-id="${i.id}">Bezahlt</button>` : ""}</td></tr>`; }).join("")}
+    </tbody></table></div>` : `<div class="sheet-card empty"><h2>Noch keine Rechnungen</h2><p>Lege eine Rechnung als Entwurf an. Sobald du sie festschreibst, bekommt sie die nächste fortlaufende Rechnungsnummer und lässt sich als PDF speichern.</p><button class="btn primary" data-act="new-invoice">Erste Rechnung schreiben</button></div>`}`;
+}
+
+function entriesRows() {
+  const q = F.q.trim().toLowerCase();
+  const rows = journal(year).filter(r => (F.ent === "all" || F.ent === r.kind) &&
+    (!q || [r.party, r.desc, r.ref, CAT[r.category]].join(" ").toLowerCase().includes(q)));
+  if (!rows.length) return `<div class="sheet-card empty"><p>${q ? "Keine Buchung passt zur Suche." : `Keine Buchungen in ${year}. Erfasse eine Ausgabe oder Einnahme. Bezahlte Rechnungen erscheinen hier automatisch.`}</p></div>`;
+  const sIn = rows.filter(r => r.kind === "in").reduce((a, r) => a + r.gross, 0), sOut = rows.filter(r => r.kind === "out").reduce((a, r) => a + r.gross, 0);
+  return `<div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Datum</th><th>Partner / Beschreibung</th><th>Kategorie</th><th>Beleg</th><th class="r">Einnahme</th><th class="r">Ausgabe</th></tr></thead><tbody>
+    ${rows.map(r => `<tr class="clickable" data-act="${r.src === "inv" ? "open-invoice" : "edit-entry"}" data-id="${r.id}">
+      <td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || "")}</span></td>
+      <td class="small">${r.src === "inv" ? "Rechnung" : esc(CAT[r.category] || r.category)}</td>
+      <td class="small">${r.src === "inv" ? `<span class="mono">${esc(r.ref)}</span>` : r.receiptId ? `<a href="/_blob/${esc(r.receiptId)}" target="_blank" rel="noopener" data-stop>Ansehen</a>` : '<span class="muted">fehlt</span>'}</td>
+      <td class="amt in">${r.kind === "in" ? num(r.gross) : ""}</td><td class="amt out">${r.kind === "out" ? num(r.gross) : ""}</td></tr>`).join("")}
+    <tr class="total"><td colspan="4">Summe ${rows.length} Buchungen</td><td class="amt in">${num(sIn)}</td><td class="amt out">${num(sOut)}</td></tr>
+    </tbody></table></div>`;
+}
+function vEntries() {
+  return `
+  <div class="head"><div class="head-l"><h3>Journal</h3><h1>Einnahmen & Ausgaben</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="new-in">Einnahme</button><button class="btn primary" data-act="new-out">Ausgabe erfassen</button></div></div>
+  <div class="section-head"><div class="filters" role="group" aria-label="Filter">
+    ${[["all", "Alle"], ["in", "Einnahmen"], ["out", "Ausgaben"]].map(([k, l]) => `<button data-act="f-ent" data-v="${k}" aria-pressed="${F.ent === k}">${l}</button>`).join("")}</div>
+    <input class="search" id="ent-search" type="search" placeholder="Suchen …" aria-label="Buchungen durchsuchen" value="${esc(F.q)}" data-input="search"></div>
+  <div id="ent-list">${allReady() ? entriesRows() : loading()}</div>`;
+}
+
+function vCustomers() {
+  const rev = {};
+  S.invoices.filter(i => i.status === "paid").forEach(i => rev[i.customerId] = (rev[i.customerId] || 0) + calcInv(i).gross);
+  const list = [...S.customers].sort((a, b) => (a.name || "").localeCompare(b.name || "", "de"));
+  return `
+  <div class="head"><div class="head-l"><h3>Stammdaten</h3><h1>Kunden</h1></div>
+    <div class="toolbar"><button class="btn primary" data-act="new-customer">Kunde anlegen</button></div></div>
+  ${!allReady() ? loading() : list.length ? `<div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Name</th><th>Ort</th><th>E-Mail</th><th class="r">Umsatz gesamt</th></tr></thead><tbody>
+    ${list.map(c => `<tr class="clickable" data-act="edit-customer" data-id="${c.id}"><td>${esc(c.name)}${c.contact ? `<span class="sub">${esc(c.contact)}</span>` : ""}</td>
+      <td>${esc([c.zip, c.city].filter(Boolean).join(" ")) || "–"}</td><td class="small">${esc(c.email || "–")}</td><td class="amt">${eur(rev[c.id] || 0)}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="sheet-card empty"><h2>Noch keine Kunden</h2><p>Lege deine Kunden mit Anschrift an. Beim Schreiben einer Rechnung füllst du den Empfänger dann mit einem Klick aus.</p><button class="btn primary" data-act="new-customer">Ersten Kunden anlegen</button></div>`}`;
+}
+
+function vEuer() {
+  const s = sett(); const e = euer(year);
+  const outRows = OUT_CATS.filter(([k]) => e.out[k]).map(([k, l]) => `<tr><td>${esc(l)}</td><td class="amt">${num(e.out[k])}</td></tr>`).join("");
+  const line = (l, v, cls = "") => v ? `<tr class="${cls}"><td>${l}</td><td class="amt">${num(v)}</td></tr>` : "";
+  return `
+  <div class="head"><div class="head-l"><h3>Einnahmenüberschussrechnung</h3><h1>EÜR ${year}</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button></div></div>
+  <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Jahr, in dem das Geld eingeht, Ausgaben im Jahr der Zahlung. Die Summen helfen dir beim Ausfüllen der Anlage EÜR in ELSTER. Die Zeilennummern ändern sich von Jahr zu Jahr, deshalb stehen hier die Bezeichnungen.</p>
+  ${!allReady() ? loading() : `<div class="grid2">
+  <div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Betriebseinnahmen</th><th class="r">EUR</th></tr></thead><tbody>
+    ${line("Betriebseinnahmen als umsatzsteuerlicher Kleinunternehmer", e.inc.ku)}
+    ${line("Umsatzsteuerpflichtige Betriebseinnahmen (netto)", e.inc.net)}
+    ${line("Sonstige Betriebseinnahmen", e.inc.other)}
+    ${line("Vereinnahmte Umsatzsteuer", e.inc.vat)}
+    ${e.incTotal ? "" : `<tr><td class="muted">Keine Einnahmen in ${year}</td><td></td></tr>`}
+    <tr class="total"><td>Summe Betriebseinnahmen</td><td class="amt in">${num(e.incTotal)}</td></tr>
+    </tbody>
+    <thead><tr><th style="padding-top:24px">Betriebsausgaben</th><th class="r" style="padding-top:24px">EUR</th></tr></thead><tbody>
+    ${outRows}${line("Gezahlte Vorsteuerbeträge", e.vorsteuer)}
+    ${e.outTotal ? "" : `<tr><td class="muted">Keine Ausgaben in ${year}</td><td></td></tr>`}
+    <tr class="total"><td>Summe Betriebsausgaben</td><td class="amt out">${num(e.outTotal)}</td></tr>
+    </tbody><tbody>
+    <tr class="grand"><td>${e.profit >= 0 ? "Gewinn" : "Verlust"}</td><td class="amt">${num(e.profit)}</td></tr>
+    </tbody></table></div>
+  <aside class="section">
+    ${e.nonDeductible ? `<p class="note">Nicht abzugsfähige Bewirtungskosten (30 %): <span class="mono">${eur(e.nonDeductible)}</span>. Sie sind oben schon herausgerechnet.</p>` : ""}
+    ${s.kleinunternehmer ? `<p class="note">Als Kleinunternehmer ziehst du keine Vorsteuer ab. Ausgaben stehen deshalb mit dem Bruttobetrag in der EÜR.</p>` : `<div class="sheet-card panel"><h2>Umsatzsteuer ${year}</h2>
+      <div class="totals" style="width:100%"><div><span>Vereinnahmte USt</span><span class="mono">${num(e.inc.vat)}</span></div><div><span>− Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
+      <div class="g"><span>${e.inc.vat - e.vorsteuer >= 0 ? "Zahllast" : "Erstattung"}</span><span class="mono">${num(Math.abs(e.inc.vat - e.vorsteuer))}</span></div></div></div>`}
+    <p class="note">Nicht enthalten: Abschreibungen (AfA) für Anschaffungen über 800 € netto, Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
+  </aside></div>`}`;
+}
+
+function vSettings() {
+  const s = sett();
+  const fld = (k, l, cls = "", attrs = "") => `<div class="f ${cls}"><label for="s-${k}">${l}</label><input id="s-${k}" name="${k}" value="${esc(s[k] ?? "")}" ${attrs}></div>`;
+  return `
+  <div class="head"><div class="head-l"><h3>Kontobuch</h3><h1>Einstellungen</h1></div></div>
+  <form class="form sheet-card panel" data-form="settings" autocomplete="off">
+    <fieldset><legend>Dein Unternehmen</legend><div class="fields">
+      ${fld("name", "Firmenname / Name")}${fld("owner", "Inhaber:in")}
+      ${fld("street", "Straße und Hausnummer", "full")}${fld("zip", "PLZ", "s2")}${fld("city", "Ort", "s4")}
+      ${fld("email", "E-Mail", "", 'type="email"')}${fld("phone", "Telefon")}${fld("web", "Website", "full")}
+    </div></fieldset>
+    <fieldset><legend>Steuer</legend><div class="fields">
+      ${fld("taxNo", "Steuernummer")}${fld("vatId", "USt-IdNr. (optional)")}
+      <div class="f full"><label class="check"><input type="checkbox" id="s-ku" name="kleinunternehmer" ${s.kleinunternehmer ? "checked" : ""}>
+        <span>Kleinunternehmer nach § 19 UStG<span class="sub">Rechnungen ohne Umsatzsteuer, mit Hinweis auf § 19 UStG. Gilt für neue Rechnungen und Buchungen.</span></span></label></div>
+    </div></fieldset>
+    <fieldset><legend>Bankverbindung</legend><div class="fields">
+      ${fld("bank", "Bank")}${fld("bic", "BIC")}${fld("iban", "IBAN", "full")}
+    </div></fieldset>
+    <fieldset><legend>Rechnungen</legend><div class="fields">
+      ${fld("invoicePrefix", "Präfix der Rechnungsnummer", "s2")}${fld("nextInvoiceNo", "Nächste laufende Nummer", "s2", 'type="number" min="1" step="1"')}${fld("paymentDays", "Zahlungsziel (Tage)", "s2", 'type="number" min="0" step="1"')}
+      <div class="f full"><span class="hint">Die nächste Rechnung bekommt die Nummer <b class="mono">${esc(nextNumber())}</b>. Wenn du von einem anderen Programm wechselst, setze hier die Nummer fort, damit die Reihe lückenlos bleibt.</span></div>
+      <div class="f full"><label for="s-intro">Einleitungstext</label><textarea id="s-intro" name="intro">${esc(s.intro)}</textarea></div>
+      <div class="f full"><label for="s-closing">Schlusstext</label><textarea id="s-closing" name="closing">${esc(s.closing)}</textarea></div>
+    </div></fieldset>
+    <div class="form-foot"><span class="muted small">Gespeichert wird in diesem privaten Artifact. Nur du kannst die Daten lesen und ändern.</span><button class="btn primary" type="submit">Speichern</button></div>
+  </form>
+  <section class="sheet-card panel">
+    <h2>Datensicherung</h2>
+    <p class="small muted">Lade regelmäßig ein Backup herunter, mindestens einmal pro Jahr nach dem Jahresabschluss. Rechnungen und Belege musst du 8 bis 10 Jahre aufbewahren. Belegdateien selbst sind nicht im Backup enthalten, nur die Verweise darauf.</p>
+    <div class="toolbar"><button class="btn" data-act="export-json" ${downloads ? "" : "disabled"}>Backup herunterladen (JSON)</button>
+      <label class="btn" for="import-file">Backup einspielen …</label><input type="file" id="import-file" accept="application/json,.json" hidden data-change="import"></div>
+    ${downloads ? "" : `<p class="small muted">Downloads sind in dieser Ansicht nicht verfügbar.</p>`}
+  </section>`;
+}
+function nextNumber(n) {
+  const s = sett(); n = n ?? Number(s.nextInvoiceNo || 1);
+  return `${s.invoicePrefix || ""}${String(n).padStart(Number(s.numberPad || 3), "0")}`;
+}
+
+/* ---------- customers ---------- */
+function customerForm(c = {}) {
+  const fld = (k, l, cls = "", attrs = "") => `<div class="f ${cls}"><label for="c-${k}">${l}</label><input id="c-${k}" name="${k}" value="${esc(c[k] ?? "")}" ${attrs}></div>`;
+  openModal(c.id ? "Kunde bearbeiten" : "Neuer Kunde", `<form class="form" data-form="customer" data-id="${c.id || ""}" autocomplete="off"><div class="fields">
+    ${fld("name", "Firma / Name", "full", "required autofocus")}${fld("contact", "Ansprechpartner:in", "full")}
+    ${fld("street", "Straße und Hausnummer", "full")}${fld("zip", "PLZ", "s2")}${fld("city", "Ort", "s4")}
+    ${fld("country", "Land (falls nicht Deutschland)")}${fld("email", "E-Mail", "", 'type="email"')}
+    ${fld("vatId", "USt-IdNr. des Kunden (optional)", "full")}
+    <div class="f full"><label for="c-note">Notiz</label><textarea id="c-note" name="note">${esc(c.note || "")}</textarea></div></div>
+    <div class="form-foot"><div class="grp">${c.id ? `<button type="button" class="btn danger" data-act="del-customer" data-id="${c.id}">Löschen</button>` : ""}</div>
+    <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
+}
+const recipientOf = c => [c.name, c.contact, c.street, [c.zip, c.city].filter(Boolean).join(" "), c.country].filter(x => x && String(x).trim()).join("\n");
+
+/* ---------- entries ---------- */
+function entryForm(e) {
+  const s = sett();
+  const ku = e.id ? !!e.ku : !!s.kleinunternehmer;
+  const cats = e.kind === "in" ? IN_CATS : OUT_CATS;
+  openModal(e.id ? (e.kind === "in" ? "Einnahme bearbeiten" : "Ausgabe bearbeiten") : (e.kind === "in" ? "Einnahme erfassen" : "Ausgabe erfassen"),
+  `<form class="form" data-form="entry" data-id="${e.id || ""}" autocomplete="off"><div class="fields">
+    <div class="f full"><span class="lbl">Art</span><div class="seg" role="radiogroup" aria-label="Art">
+      <label><input type="radio" name="kind" value="out" ${e.kind !== "in" ? "checked" : ""} data-change="entry-kind"><span>Ausgabe</span></label>
+      <label><input type="radio" name="kind" value="in" ${e.kind === "in" ? "checked" : ""} data-change="entry-kind"><span>Einnahme</span></label></div></div>
+    <div class="f s2"><label for="e-date">Datum der Zahlung</label><input id="e-date" type="date" name="date" value="${esc(e.date || today())}" required></div>
+    <div class="f s2"><label for="e-gross">Betrag brutto (€)</label><input id="e-gross" name="gross" inputmode="decimal" value="${esc(numIn(e.gross))}" placeholder="0,00" required autofocus></div>
+    ${ku ? `<div class="f s2"><span class="lbl">Umsatzsteuer</span><span class="hint" style="padding-top:8px">${e.kind === "in" ? "keine (§ 19 UStG)" : "kein Vorsteuerabzug"}</span></div>`
+      : `<div class="f s2"><label for="e-vat">darin USt</label><select id="e-vat" name="vatRate">${[19, 7, 0].map(r => `<option value="${r}" ${Number(e.vatRate ?? 19) === r ? "selected" : ""}>${r} %</option>`).join("")}</select></div>`}
+    <div class="f"><label for="e-party">${e.kind === "in" ? "Von (Kunde / Zahler)" : "An (Lieferant / Händler)"}</label><input id="e-party" name="party" value="${esc(e.party || "")}" list="party-list"></div>
+    <div class="f"><label for="e-cat">Kategorie</label><select id="e-cat" name="category">${cats.map(([k, l]) => `<option value="${k}" ${e.category === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+    <div class="f s4"><label for="e-desc">Beschreibung</label><input id="e-desc" name="desc" value="${esc(e.desc || "")}" placeholder="z. B. Druckerpapier, Domain-Verlängerung"></div>
+    <div class="f s2"><label for="e-ref">Belegnummer</label><input id="e-ref" name="ref" value="${esc(e.ref || "")}" placeholder="optional"></div>
+    <div class="f full"><span class="lbl">Beleg</span>
+      ${e.receiptId ? `<div class="toolbar"><a class="btn sm" href="/_blob/${esc(e.receiptId)}" target="_blank" rel="noopener">${esc(e.receiptName || "Beleg ansehen")}</a>
+        <label class="check small"><input type="checkbox" id="e-rm" name="removeReceipt"> Beleg entfernen</label></div>` : ""}
+      ${assets ? `<input id="e-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf"><span class="hint">PDF, JPG, PNG oder WebP bis 20 MB. Foto vom Kassenbon reicht.</span>`
+        : `<span class="hint">Belege hochladen geht nur, wenn du das Kontobuch selbst geöffnet hast.</span>`}</div>
+    ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Die erfasst du besser mit deiner Steuerberatung.</p>` : ""}
+  </div>
+  <datalist id="party-list">${[...new Set(S.entries.map(x => x.party).filter(Boolean))].slice(0, 200).map(p => `<option value="${esc(p)}">`).join("")}</datalist>
+  <div class="form-foot"><div class="grp">${e.id ? `<button type="button" class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button>` : ""}</div>
+  <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
+}
+async function submitEntry(form) {
+  const fd = new FormData(form); const id = form.dataset.id || uid();
+  const old = S.entries.find(x => x.id === id) || {};
+  const gross = r2(parseNum(fd.get("gross")));
+  if (!gross) { toast("Bitte gib einen Betrag ein.", true); return; }
+  const kind = fd.get("kind");
+  const data = { kind, date: fd.get("date"), gross, party: fd.get("party").trim(), desc: fd.get("desc").trim(), ref: fd.get("ref").trim(),
+    category: fd.get("category"), ku: old.id ? !!old.ku : !!sett().kleinunternehmer,
+    vatRate: Number(fd.get("vatRate") || 0), receiptId: old.receiptId || null, receiptName: old.receiptName || null, createdAt: old.createdAt || new Date().toISOString() };
+  if (kind === "in" && !IN_CATS.some(c => c[0] === data.category)) data.category = "umsatz";
+  if (kind === "out" && !OUT_CATS.some(c => c[0] === data.category)) data.category = "sonstige";
+  const btn = $("button[type=submit]", form); btn.disabled = true;
+  const file = fd.get("file");
+  let toDelete = null;
+  if (fd.get("removeReceipt") && data.receiptId) { toDelete = data.receiptId; data.receiptId = null; data.receiptName = null; }
+  if (file && file.size && assets) {
+    btn.textContent = "Lade Beleg hoch …";
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const type = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" }[ext] || file.type;
+    try {
+      const up = await assets.upload(file, { type });
+      if (data.receiptId) toDelete = data.receiptId;
+      data.receiptId = up.id; data.receiptName = file.name;
+    } catch (err) {
+      console.error(err);
+      const m = { too_large: "Die Datei ist größer als 20 MB.", unsupported_type: "Dieses Dateiformat geht nicht. Bitte PDF, JPG, PNG oder WebP.", quota_or_state: "Der Speicher für Belege ist voll." }[err?.code] || "Der Beleg konnte nicht hochgeladen werden.";
+      toast(m, true); btn.disabled = false; btn.textContent = "Speichern"; return;
+    }
+  }
+  if (await saveDoc("entries", id, data)) {
+    if (toDelete && assets) assets.delete(toDelete).catch(() => {});
+    closeModal(); toast(kind === "in" ? "Einnahme gespeichert" : "Ausgabe gespeichert");
+  } else { btn.disabled = false; btn.textContent = "Speichern"; }
+}
+
+/* ---------- invoices ---------- */
+function newInvoice(src) {
+  const s = sett();
+  ed = { id: null, status: "draft", customerId: "", recipient: "", date: today(), serviceDate: "", dueDays: s.paymentDays, intro: s.intro, notes: "",
+    ku: !!s.kleinunternehmer, items: [{ desc: "", qty: 1, unit: "Std.", price: "", vat: 19 }] };
+  if (src) Object.assign(ed, { customerId: src.customerId, recipient: src.recipient, intro: src.intro, notes: src.notes, serviceDate: "",
+    items: src.items.map(x => ({ ...x })) });
+  invoiceEditor();
+}
+function invoiceEditor() {
+  const custOpts = [...S.customers].sort((a, b) => (a.name || "").localeCompare(b.name || "", "de"));
+  openModal(ed.id ? "Entwurf bearbeiten" : "Neue Rechnung", `<form class="form" data-form="invoice" autocomplete="off"><div class="fields">
+    <div class="f"><label for="i-cust">Kunde</label><select id="i-cust" name="customerId" data-change="inv-cust"><option value="">— ohne Kundenstamm —</option>
+      ${custOpts.map(c => `<option value="${c.id}" ${ed.customerId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      <span class="hint">Oder Empfänger direkt eintippen.</span></div>
+    <div class="f"><label for="i-rec">Empfänger (Anschrift)</label><textarea id="i-rec" name="recipient" rows="4" required>${esc(ed.recipient)}</textarea></div>
+    <div class="f s2"><label for="i-date">Rechnungsdatum</label><input id="i-date" type="date" name="date" value="${esc(ed.date)}" required></div>
+    <div class="f s2"><label for="i-sd">Leistungsdatum / -zeitraum</label><input id="i-sd" name="serviceDate" value="${esc(ed.serviceDate)}" placeholder="z. B. September 2026"></div>
+    <div class="f s2"><label for="i-due">Zahlungsziel (Tage)</label><input id="i-due" type="number" min="0" name="dueDays" value="${esc(ed.dueDays)}"></div>
+    <div class="f full"><label for="i-intro">Einleitung</label><textarea id="i-intro" name="intro" rows="2">${esc(ed.intro)}</textarea></div>
+  </div>
+  <div class="items" id="items"></div>
+  <div><button type="button" class="btn sm" data-act="item-add">+ Position</button></div>
+  <div class="totals" id="inv-totals"></div>
+  <div class="f full"><label for="i-notes">Anmerkung auf der Rechnung (optional)</label><textarea id="i-notes" name="notes" rows="2">${esc(ed.notes)}</textarea></div>
+  ${ed.ku ? `<p class="note">Kleinunternehmer: Die Rechnung enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
+  <div class="form-foot"><div class="grp">${ed.id ? `<button type="button" class="btn danger" data-act="del-invoice" data-id="${ed.id}">Entwurf löschen</button>` : ""}</div>
+    <div class="grp"><button type="button" class="btn" data-act="inv-save-draft">Als Entwurf speichern</button>
+    <button class="btn primary" type="submit">Festschreiben als ${esc(nextNumber())}</button></div></div></form>`, { wide: true });
+  renderItems();
+}
+function renderItems() {
+  const el = $("#items"); if (!el) return;
+  const cls = ed.ku ? "item-row ku" : "item-row";
+  el.innerHTML = `<div class="${cls} item-head"><span>Beschreibung</span><span>Menge</span><span>Einheit</span><span>Einzelpreis</span>${ed.ku ? "" : "<span>USt</span>"}<span>Gesamt</span><span></span></div>` +
+    ed.items.map((it, i) => `<div class="${cls}" data-i="${i}">
+      <input id="it-${i}-desc" aria-label="Beschreibung" data-f="desc" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
+      <input id="it-${i}-qty" aria-label="Menge" data-f="qty" inputmode="decimal" value="${esc(numIn(it.qty))}">
+      <input id="it-${i}-unit" aria-label="Einheit" data-f="unit" value="${esc(it.unit)}" placeholder="Stk.">
+      <input id="it-${i}-price" aria-label="Einzelpreis in Euro" data-f="price" inputmode="decimal" value="${esc(numIn(it.price))}" placeholder="0,00">
+      ${ed.ku ? "" : `<select id="it-${i}-vat" aria-label="Umsatzsteuersatz" data-f="vat">${[19, 7, 0].map(r => `<option value="${r}" ${Number(it.vat) === r ? "selected" : ""}>${r} %</option>`).join("")}</select>`}
+      <output data-line>${num(r2(parseNum(it.qty) * parseNum(it.price)))}</output>
+      <button type="button" class="icon-btn" data-act="item-del" data-i="${i}" aria-label="Position entfernen" ${ed.items.length < 2 ? "disabled" : ""}>×</button></div>`).join("");
+  renderTotals();
+}
+function renderTotals() {
+  const t = calcInv(ed); const el = $("#inv-totals"); if (!el) return;
+  el.innerHTML = ed.ku ? `<div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div>`
+    : `<div><span>Netto</span><span class="mono">${eur(t.net)}</span></div>${Object.entries(t.byRate).filter(([r]) => Number(r)).map(([r, b]) => `<div><span>USt ${r} %</span><span class="mono">${eur(r2(b * r / 100))}</span></div>`).join("")}
+       <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div>`;
+}
+function readInvoiceForm() {
+  const f = $('form[data-form="invoice"]'); const fd = new FormData(f);
+  Object.assign(ed, { customerId: fd.get("customerId"), recipient: fd.get("recipient").trim(), date: fd.get("date"), serviceDate: fd.get("serviceDate").trim(),
+    dueDays: Number(fd.get("dueDays") || 0), intro: fd.get("intro").trim(), notes: fd.get("notes").trim() });
+  ed.items = ed.items.map(it => ({ desc: String(it.desc).trim(), qty: parseNum(it.qty), unit: String(it.unit || "").trim(), price: r2(parseNum(it.price)), vat: ed.ku ? 0 : Number(it.vat || 0) }))
+    .filter(it => it.desc || it.price);
+  if (!ed.items.length) ed.items = [{ desc: "", qty: 1, unit: "", price: 0, vat: 19 }];
+}
+function invoiceDoc(extra) {
+  const t = calcInv(ed);
+  return { status: ed.status, number: ed.number || null, customerId: ed.customerId || null, recipient: ed.recipient, date: ed.date, serviceDate: ed.serviceDate,
+    dueDays: ed.dueDays, dueDate: addDays(ed.date, ed.dueDays), intro: ed.intro, notes: ed.notes, items: ed.items, ku: ed.ku,
+    net: t.net, vat: t.vat, gross: t.gross, createdAt: ed.createdAt || new Date().toISOString(), ...extra };
+}
+async function saveDraft() {
+  readInvoiceForm(); const id = ed.id || uid();
+  if (await saveDoc("invoices", id, invoiceDoc({ status: "draft" }))) { closeModal(); toast("Entwurf gespeichert"); }
+}
+async function finalizeInvoice() {
+  readInvoiceForm();
+  if (!ed.recipient) { toast("Bitte gib einen Empfänger an.", true); return; }
+  if (!ed.items.some(it => it.desc && it.price)) { toast("Mindestens eine Position braucht Beschreibung und Preis.", true); return; }
+  if (ed.items.some(it => !it.desc)) { toast("Jede Position braucht eine Beschreibung.", true); return; }
+  const s = sett();
+  if (!s.name || !s.street || !s.taxNo) { toast("Trag zuerst Name, Anschrift und Steuernummer in den Einstellungen ein. Sie müssen auf jeder Rechnung stehen.", true); return; }
+  const n = Number(s.nextInvoiceNo || 1); const number = nextNumber(n);
+  if (S.invoices.some(i => i.number === number)) { toast(`Die Nummer ${number} gibt es schon. Passe die nächste Nummer in den Einstellungen an.`, true); return; }
+  const btn = $('form[data-form="invoice"] button[type=submit]'); if (btn) btn.disabled = true;
+  if (!await saveSettings({ nextInvoiceNo: n + 1 })) { if (btn) btn.disabled = false; return; }
+  const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""])); seller.closing = s.closing;
+  const id = ed.id || uid();
+  if (await saveDoc("invoices", id, invoiceDoc({ status: "open", number, seller, finalizedAt: new Date().toISOString() }))) {
+    closeModal(); toast(`Rechnung ${number} festgeschrieben`); openInvoice(id);
+  }
+}
+function openInvoice(id) {
+  const inv = S.invoices.find(i => i.id === id); if (!inv) return;
+  if (inv.status === "draft") { ed = { ...inv, items: inv.items.map(x => ({ ...x })) }; invoiceEditor(); return; }
+  const st = invState(inv);
+  openModal(`${inv.storno ? "Stornorechnung" : "Rechnung"} ${inv.number}`, `
+    <div class="toolbar">${chip(st)}${inv.paidDate ? `<span class="small muted">bezahlt am ${fDate(inv.paidDate)}</span>` : ""}
+      ${inv.cancelledBy ? `<span class="small muted">storniert durch ${esc(S.invoices.find(i => i.id === inv.cancelledBy)?.number || "")}</span>` : ""}</div>
+    <div class="toolbar">
+      <button class="btn primary" data-act="pdf" data-id="${inv.id}" ${downloads && window.jspdf ? "" : "disabled"}>PDF herunterladen</button>
+      ${st === "open" || st === "overdue" ? `<button class="btn" data-act="mark-paid" data-id="${inv.id}">Als bezahlt markieren</button>` : ""}
+      ${st === "paid" ? `<button class="btn" data-act="unpay" data-id="${inv.id}">Zahlung zurücknehmen</button>` : ""}
+      ${!inv.storno ? `<button class="btn" data-act="dup-invoice" data-id="${inv.id}">Als Vorlage kopieren</button>` : ""}
+      ${(st === "open" || st === "overdue") && !inv.storno ? `<button class="btn danger" data-act="cancel-invoice" data-id="${inv.id}">Stornieren</button>` : ""}
+    </div>
+    ${downloads ? "" : `<p class="small muted">PDF-Downloads sind in dieser Ansicht nicht verfügbar.</p>`}
+    <div class="table-wrap">${paperHtml(inv)}</div>
+    <p class="small muted">Festgeschriebene Rechnungen lassen sich nicht mehr ändern. Bei Fehlern stornieren und neu schreiben.</p>`, { wide: true });
+}
+function paperHtml(inv) {
+  const s = inv.seller || sett(); const t = calcInv(inv);
+  const senderLine = [s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+  return `<div class="paper">
+    <div class="ph"><div><b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div></div>
+      <div class="addr small" style="text-align:right">${esc([s.email, s.phone, s.web].filter(Boolean).join("\n"))}</div></div>
+    <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(inv.recipient)}</div></div>
+      <div class="meta"><span>Rechnungsnr.</span><span class="mono">${esc(inv.number)}</span><span>Rechnungsdatum</span><span>${fDate(inv.date)}</span>
+      <span>Leistungsdatum</span><span>${esc(inv.serviceDate || fDate(inv.date))}</span>${inv.storno ? "" : `<span>Fällig bis</span><span>${fDate(inv.dueDate)}</span>`}</div></div>
+    <div><h2>${inv.storno ? "Stornorechnung" : "Rechnung"}</h2>${inv.storno ? `<p>Storno zu Rechnung ${esc(inv.refNumber)} vom ${fDate(inv.refDate)}.</p>` : inv.intro ? `<p>${esc(inv.intro)}</p>` : ""}</div>
+    <table><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th>${inv.ku ? "" : '<th class="r">USt</th>'}<th class="r">Gesamt</th></tr></thead><tbody>
+      ${inv.items.map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.desc)}</td><td class="amt">${String(it.qty).replace(".", ",")} ${esc(it.unit)}</td><td class="amt">${eur(it.price)}</td>${inv.ku ? "" : `<td class="amt">${it.vat} %</td>`}<td class="amt">${eur(r2(it.qty * it.price))}</td></tr>`).join("")}
+    </tbody></table>
+    <div class="totals">${inv.ku ? "" : `<div><span>Netto</span><span class="mono">${eur(t.net)}</span></div>${Object.entries(t.byRate).filter(([r]) => Number(r)).map(([r, b]) => `<div><span>USt ${r} %</span><span class="mono">${eur(r2(b * r / 100))}</span></div>`).join("")}`}
+      <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div></div>
+    <div>${inv.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
+      ${inv.storno ? "" : `<p>Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto` : ""} unter Angabe der Rechnungsnummer.</p>`}
+      ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(s.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
+    <div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
+      ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>
+  </div>`;
+}
+function invoicePdf(inv) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const s = inv.seller || sett(); const t = calcInv(inv);
+  const L = 25, R = 190; let y;
+  const gray = () => doc.setTextColor(110); const black = () => doc.setTextColor(20);
+  const footer = () => {
+    doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
+    const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
+    const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
+    doc.text(parts.join("  ·  "), L, 283); if (bank.length) doc.text(bank.join("  ·  "), L, 287); black();
+  };
+  // Kopf
+  doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
+  doc.text([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean), R, 16, { align: "right" });
+  // Anschriftfeld nach DIN 5008
+  doc.setFontSize(7); doc.text([s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · "), L, 50);
+  doc.setDrawColor(170); doc.line(L, 51.2, L + 85, 51.2);
+  black(); doc.setFontSize(10); doc.text(doc.splitTextToSize(inv.recipient || "", 85).slice(0, 6), L, 57);
+  // Infoblock
+  const meta = [["Rechnungsnr.", inv.number], ["Rechnungsdatum", fDate(inv.date)], ["Leistungsdatum", inv.serviceDate || fDate(inv.date)]];
+  if (!inv.storno) meta.push(["Fällig bis", fDate(inv.dueDate)]);
+  y = 57; doc.setFontSize(9);
+  meta.forEach(([k, v]) => { gray(); doc.text(k, 125, y); black(); doc.text(String(v || ""), R, y, { align: "right" }); y += 5; });
+  // Titel
+  y = 100; doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text(inv.storno ? "Stornorechnung" : "Rechnung", L, y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); y += 8;
+  const intro = inv.storno ? `Storno zu Rechnung ${inv.refNumber} vom ${fDate(inv.refDate)}.` : inv.intro;
+  if (intro) { const lines = doc.splitTextToSize(intro, R - L); doc.text(lines, L, y); y += lines.length * 4.6 + 4; }
+  // Tabelle
+  const cols = inv.ku ? { pos: L, desc: L + 10, qty: 132, price: 160, total: R } : { pos: L, desc: L + 10, qty: 122, price: 148, vat: 162, total: R };
+  const descW = (inv.ku ? 76 : 66);
+  const head = () => {
+    doc.setFontSize(8); gray();
+    doc.text("Pos.", cols.pos, y); doc.text("Beschreibung", cols.desc, y); doc.text("Menge", cols.qty, y, { align: "right" });
+    doc.text("Einzelpreis", cols.price, y, { align: "right" }); if (!inv.ku) doc.text("USt", cols.vat, y, { align: "right" }); doc.text("Gesamt", cols.total, y, { align: "right" });
+    doc.setDrawColor(120); doc.line(L, y + 2, R, y + 2); y += 7; black(); doc.setFontSize(9.5);
+  };
+  head();
+  inv.items.forEach((it, i) => {
+    const lines = doc.splitTextToSize(it.desc || "", descW);
+    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); y = 25; head(); }
+    doc.text(String(i + 1), cols.pos, y); doc.text(lines, cols.desc, y);
+    doc.text(`${String(it.qty).replace(".", ",")} ${it.unit || ""}`.trim(), cols.qty, y, { align: "right" });
+    doc.text(eur(it.price), cols.price, y, { align: "right" }); if (!inv.ku) doc.text(`${it.vat} %`, cols.vat, y, { align: "right" });
+    doc.text(eur(r2(it.qty * it.price)), cols.total, y, { align: "right" });
+    y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
+  });
+  // Summen
+  if (y > 235) { footer(); doc.addPage(); y = 25; }
+  y += 2; const lx = 125;
+  if (!inv.ku) {
+    doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
+    Object.entries(t.byRate).filter(([r]) => Number(r)).forEach(([r, b]) => { doc.text(`USt ${r} %`, lx, y); doc.text(eur(r2(b * r / 100)), R, y, { align: "right" }); y += 5; });
+  }
+  doc.setDrawColor(20); doc.line(lx, y - 3.5, R, y - 3.5);
+  doc.setFont("helvetica", "bold"); doc.text("Gesamtbetrag", lx, y + 1); doc.text(eur(t.gross), R, y + 1, { align: "right" });
+  doc.line(lx, y + 3, R, y + 3); doc.line(lx, y + 3.8, R, y + 3.8);
+  doc.setFont("helvetica", "normal"); y += 14;
+  const tail = [];
+  if (inv.ku) tail.push("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.");
+  if (!inv.storno) tail.push(`Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? " auf das unten genannte Konto" : ""} unter Angabe der Rechnungsnummer ${inv.number}.`);
+  if (inv.notes) tail.push(inv.notes);
+  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
+  if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); }
+  footer();
+  return doc.output("blob");
+}
+async function savePdf(inv) {
+  if (!downloads || !window.jspdf) { toast("PDF-Download ist hier nicht verfügbar.", true); return; }
+  try {
+    const blob = invoicePdf(inv);
+    const name = `${inv.storno ? "Stornorechnung" : "Rechnung"}_${inv.number}.pdf`.replace(/[\/\\:*?"<>|]/g, "-");
+    await downloads.save({ filename: name, data: blob }); toast("PDF gespeichert");
+  } catch (e) { if (e?.code !== "declined") { console.error(e); toast("Das PDF konnte nicht gespeichert werden.", true); } }
+}
+function markPaid(id) {
+  const inv = S.invoices.find(i => i.id === id); if (!inv) return;
+  openModal(`Zahlung für ${inv.number}`, `<form class="form" data-form="paid" data-id="${id}"><div class="fields">
+    <div class="f"><label for="p-date">Zahlungseingang am</label><input id="p-date" type="date" name="paidDate" value="${today()}" required autofocus></div>
+    <div class="f"><span class="lbl">Betrag</span><span class="mono" style="padding-top:8px">${eur(calcInv(inv).gross)}</span></div></div>
+    <p class="note">Die Einnahme zählt im Jahr des Zahlungseingangs.</p>
+    <div class="form-foot"><span></span><div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Als bezahlt buchen</button></div></div></form>`);
+}
+async function cancelInvoice(id) {
+  const inv = S.invoices.find(i => i.id === id); if (!inv) return;
+  confirmBox(`Rechnung ${inv.number} stornieren?`, `Es wird eine Stornorechnung mit der nächsten Nummer <b class="mono">${esc(nextNumber())}</b> und negativen Beträgen erstellt. Beide Rechnungen zählen dann nicht mehr zum Umsatz. Schicke die Stornorechnung an deinen Kunden.`, "Stornorechnung erstellen", async () => {
+    const s = sett(); const n = Number(s.nextInvoiceNo || 1); const number = nextNumber(n);
+    if (!await saveSettings({ nextInvoiceNo: n + 1 })) return;
+    const sid = uid();
+    const stor = { ...inv, items: inv.items.map(it => ({ ...it, qty: -Math.abs(it.qty) })), number, date: today(), dueDate: today(), status: "cancelled", storno: true,
+      refId: inv.id, refNumber: inv.number, refDate: inv.date, paidDate: null, intro: "", notes: "", finalizedAt: new Date().toISOString(), createdAt: new Date().toISOString() };
+    delete stor.id; delete stor.cancelledBy;
+    const t = calcInv(stor); Object.assign(stor, { net: t.net, vat: t.vat, gross: t.gross });
+    if (await saveDoc("invoices", sid, stor)) {
+      const { id: _, ...rest } = inv;
+      await saveDoc("invoices", inv.id, { ...rest, status: "cancelled", cancelledBy: sid });
+      toast(`Stornorechnung ${number} erstellt`); setTimeout(() => openInvoice(sid), 300);
+    }
+  });
+}
+
+/* ---------- export / import ---------- */
+async function exportJson() {
+  if (!downloads) return;
+  const data = { app: "Kontobuch", version: 1, exportedAt: new Date().toISOString(), settings: S.settings, customers: S.customers, invoices: S.invoices, entries: S.entries };
+  try { await downloads.save({ filename: `Kontobuch-Backup-${today()}.json`, data: JSON.stringify(data, null, 2) }); toast("Backup gespeichert"); }
+  catch (e) { if (e?.code !== "declined") toast("Das Backup konnte nicht gespeichert werden.", true); }
+}
+async function exportCsv() {
+  if (!downloads) return;
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = journal(year).slice().reverse();
+  const lines = [["Datum", "Art", "Belegnr.", "Partner", "Beschreibung", "Kategorie", "Brutto", "Netto", "USt/Vorsteuer", "Beleg vorhanden"].map(q).join(";")];
+  rows.forEach(r => lines.push([fDate(r.date), r.kind === "in" ? "Einnahme" : "Ausgabe", r.ref, r.party, r.desc, r.src === "inv" ? "Rechnung" : CAT[r.category],
+    num(r.gross), num(r.net), num(r.vat), r.src === "inv" ? "Rechnung" : r.receiptId ? "ja" : "nein"].map(q).join(";")));
+  try { await downloads.save({ filename: `Kontobuch-Journal-${year}.csv`, data: "﻿" + lines.join("\r\n") }); toast("CSV gespeichert"); }
+  catch (e) { if (e?.code !== "declined") toast("Die CSV-Datei konnte nicht gespeichert werden.", true); }
+}
+async function importJson(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
+  if (data?.app !== "Kontobuch" || !Array.isArray(data.invoices)) { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
+  const n = (data.customers?.length || 0) + data.invoices.length + (data.entries?.length || 0);
+  confirmBox("Backup einspielen?", `Das Backup vom ${fDate((data.exportedAt || "").slice(0, 10))} enthält ${n} Datensätze. Einträge mit gleicher Kennung werden überschrieben, alles andere bleibt erhalten.`, "Einspielen", async () => {
+    let ok = true;
+    if (data.settings && Object.keys(data.settings).length) ok = await saveSettings(data.settings);
+    for (const coll of ["customers", "invoices", "entries"]) {
+      for (const d of data[coll] || []) { if (!ok) break; const { id, ...rest } = d; if (id) ok = await guard(() => db.collection(coll).doc(id).set(rest)); }
+    }
+    if (ok) toast(`${n} Datensätze eingespielt`);
+  }, false);
+}
+
+/* ---------- events ---------- */
+const ACT = {
+  close: () => closeModal(),
+  nav: d => { view = d.v; lsSet("kb.view", view); history.replaceState(null, "", "#" + view); closeModal(); render(); window.scrollTo(0, 0); },
+  "f-inv": d => { F.inv = d.v; render(); },
+  "f-ent": d => { F.ent = d.v; render(); },
+  "new-invoice": () => newInvoice(),
+  "new-customer": () => customerForm(),
+  "new-out": () => entryForm({ kind: "out", category: "sonstige" }),
+  "new-in": () => entryForm({ kind: "in", category: "umsatz" }),
+  "edit-customer": d => customerForm(S.customers.find(c => c.id === d.id)),
+  "edit-entry": d => { const e = S.entries.find(x => x.id === d.id); if (e) entryForm(e); },
+  "open-invoice": d => openInvoice(d.id),
+  "mark-paid": d => markPaid(d.id),
+  unpay: d => { const inv = S.invoices.find(i => i.id === d.id); confirmBox("Zahlung zurücknehmen?", `Rechnung ${esc(inv.number)} wird wieder als offen geführt.`, "Zurücknehmen",
+    async () => { const { id, ...rest } = inv; await saveDoc("invoices", id, { ...rest, status: "open", paidDate: null }); }); },
+  pdf: d => savePdf(S.invoices.find(i => i.id === d.id)),
+  "dup-invoice": d => newInvoice(S.invoices.find(i => i.id === d.id)),
+  "cancel-invoice": d => cancelInvoice(d.id),
+  "del-invoice": d => confirmBox("Entwurf löschen?", "Der Entwurf hat noch keine Rechnungsnummer und wird endgültig gelöscht.", "Löschen", () => delDoc("invoices", d.id)),
+  "del-customer": d => { const used = S.invoices.some(i => i.customerId === d.id);
+    confirmBox("Kunde löschen?", used ? "Bestehende Rechnungen behalten die Anschrift, die beim Schreiben eingetragen war." : "Der Kunde wird endgültig gelöscht.", "Löschen", () => delDoc("customers", d.id)); },
+  "del-entry": d => { const e = S.entries.find(x => x.id === d.id);
+    confirmBox("Buchung löschen?", `Die Buchung${e?.receiptId ? " und ihr Beleg werden" : " wird"} endgültig gelöscht.`, "Löschen", async () => {
+      if (await delDoc("entries", d.id) && e?.receiptId && assets) assets.delete(e.receiptId).catch(() => {}); }); },
+  "item-add": () => { syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
+  "item-del": d => { syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
+  "inv-save-draft": () => saveDraft(),
+  "export-json": () => exportJson(),
+  "export-csv": () => exportCsv(),
+};
+function syncItems() {
+  document.querySelectorAll("#items .item-row[data-i]").forEach(row => {
+    const it = ed.items[Number(row.dataset.i)]; if (!it) return;
+    row.querySelectorAll("[data-f]").forEach(inp => it[inp.dataset.f] = inp.value);
+  });
+}
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-stop]")) return;
+  if (e.target.id === "modal") { closeModal(); return; }
+  const t = e.target.closest("[data-act]"); if (!t) return;
+  const fn = ACT[t.dataset.act]; if (!fn) return;
+  e.preventDefault(); fn(t.dataset, t);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("#modal").hidden) closeModal();
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.clickable")) { e.preventDefault(); e.target.click(); }
+});
+document.addEventListener("input", e => {
+  if (e.target.dataset.input === "search") { F.q = e.target.value; $("#ent-list").innerHTML = entriesRows(); return; }
+  const row = e.target.closest("#items .item-row[data-i]");
+  if (row && ed) {
+    const it = ed.items[Number(row.dataset.i)]; it[e.target.dataset.f] = e.target.value;
+    $("output", row).textContent = num(r2(parseNum(it.qty) * parseNum(it.price))); renderTotals();
+  }
+});
+document.addEventListener("change", e => {
+  const k = e.target.dataset.change;
+  if (k === "year") { year = Number(e.target.value); render(); }
+  if (k === "inv-cust" && ed) { const c = S.customers.find(x => x.id === e.target.value); if (c) $("#i-rec").value = recipientOf(c); }
+  if (k === "entry-kind") {
+    const f = e.target.form; const fd = new FormData(f); const id = f.dataset.id;
+    const old = S.entries.find(x => x.id === id) || {};
+    entryForm({ ...old, kind: fd.get("kind"), date: fd.get("date"), gross: fd.get("gross"), party: fd.get("party"), desc: fd.get("desc"), ref: fd.get("ref"),
+      category: fd.get("kind") === "in" ? "umsatz" : "sonstige", vatRate: fd.get("vatRate") ?? old.vatRate });
+  }
+  if (k === "import" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
+});
+document.addEventListener("submit", async e => {
+  const f = e.target; const kind = f.dataset.form; if (!kind) return;
+  e.preventDefault();
+  if (kind === "settings") {
+    const fd = new FormData(f); const patch = {};
+    for (const [k, v] of fd.entries()) patch[k] = typeof v === "string" ? v.trim() : v;
+    patch.kleinunternehmer = $("#s-ku").checked;
+    patch.nextInvoiceNo = Math.max(1, parseInt(patch.nextInvoiceNo, 10) || 1);
+    patch.paymentDays = Math.max(0, parseInt(patch.paymentDays, 10) || 0);
+    patch.iban = (patch.iban || "").replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim().toUpperCase();
+    const b = $("button[type=submit]", f); b.disabled = true;
+    if (await saveSettings(patch)) toast("Einstellungen gespeichert");
+    b.disabled = false;
+  }
+  if (kind === "customer") {
+    const fd = new FormData(f); const id = f.dataset.id || uid();
+    const data = Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v).trim()]));
+    if (!data.name) return;
+    const old = S.customers.find(c => c.id === id);
+    if (await saveDoc("customers", id, { ...data, createdAt: old?.createdAt || new Date().toISOString() })) {
+      closeModal(); toast("Kunde gespeichert");
+    }
+  }
+  if (kind === "entry") submitEntry(f);
+  if (kind === "invoice") { syncItems(); finalizeInvoice(); }
+  if (kind === "paid") {
+    const inv = S.invoices.find(i => i.id === f.dataset.id); const { id, ...rest } = inv;
+    if (await saveDoc("invoices", id, { ...rest, status: "paid", paidDate: new FormData(f).get("paidDate") })) { closeModal(); toast(`Rechnung ${inv.number} als bezahlt gebucht`); }
+  }
+});
+
+/* ---------- boot ---------- */
+async function boot() {
+  render();
+  if (!window.claude?.use) { S.conn = "none"; render(); return; }
+  db = await window.claude.use("db");
+  if (!db) { S.conn = "none"; render(); return; }
+  S.conn = "ok";
+  window.claude.use("assets").then(a => { assets = a; }).catch(() => {});
+  window.claude.use("downloads").then(d => { downloads = d; render(); }).catch(() => {});
+  const onErr = err => { console.error(err); S.conn = "err"; render(); };
+  db.doc("book/main").onSnapshot(snap => { S.settings = snap.exists ? { ...snap.data() } : {}; S.ready.settings = true; if (!$('form[data-form="settings"]') || !document.activeElement?.closest?.("form")) render(); else renderNav(); }, onErr);
+  for (const c of ["customers", "invoices", "entries"]) {
+    db.collection(c).onSnapshot(q => { S[c] = q.docs.map(d => ({ id: d.id, ...d.data() })); S.ready[c] = true; render(); }, onErr);
+  }
+}
+boot();
+</script>
