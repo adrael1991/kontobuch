@@ -5,9 +5,9 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory };")(
+const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer };")(
   { getItem: () => null, setItem() {} }, { hash: "" });
-const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory } = app;
+const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer } = app;
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
 S.settings = { invoicePrefix: "RE-2026-", nextInvoiceNo: 41 };
@@ -55,5 +55,22 @@ assert.deepStrictEqual(partyNames("out"), ["Adobe", "Strato GmbH"]);
 assert.deepStrictEqual(partyNames("in"), ["Bar-Kunde", "Beispiel GmbH"]);
 assert.strictEqual(lastCategory("out", " ADOBE "), "software");
 assert.strictEqual(lastCategory("out", "Strato GmbH"), undefined);
+
+// EÜR nach Kennzahlen: gleiche Felder zusammengefasst, Bewirtung zu 70 %, Zufluss im Zahlungsjahr.
+S.invoices = [
+  { status: "paid", paidDate: "2026-03-01", ku: true, items: [{ qty: 2, price: 100 }] },
+  { status: "paid", paidDate: "2027-01-02", ku: true, items: [{ qty: 1, price: 50 }] },
+];
+S.entries = [
+  { kind: "out", date: "2026-02-01", gross: 10, category: "bank", ku: true },
+  { kind: "out", date: "2026-02-02", gross: 5.5, category: "sonstige", ku: true },
+  { kind: "out", date: "2026-02-03", gross: 100, category: "bewirtung", ku: true },
+  { kind: "out", date: "2026-12-31", gross: 188.26, category: "afa", ku: true },
+  { kind: "in", date: "2026-05-01", gross: 30, category: "sonstige_in", ku: true },
+];
+const e = euer(2026);
+assert.deepStrictEqual(e.inc.map(l => [l.kz, l.amount]), [["111", 230]]);
+assert.deepStrictEqual(e.out.map(l => [l.kz, l.amount]), [["130", 188.26], ["183", 15.5], ["175", 70]]);
+assert.deepStrictEqual([e.nonDeductible, e.incTotal, e.outTotal, e.profit], [30, 230, 273.76, -43.76]);
 
 console.log("OK");

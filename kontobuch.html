@@ -259,29 +259,40 @@ legend { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; ma
 <script>
 "use strict";
 /* ---------- constants ---------- */
+/* Kategorien mit dem Feld (Kennzahl) der Anlage EÜR, in das sie gehören. Die IDs bleiben stabil, sie stehen in alten Buchungen. */
 const OUT_CATS = [
-  ["waren", "Waren, Roh- und Hilfsstoffe"],
-  ["fremd", "Fremdleistungen"],
-  ["gwg", "Geringwertige Wirtschaftsgüter (bis 800 € netto)"],
-  ["software", "Software & Lizenzen"],
-  ["telekom", "Telefon & Internet"],
-  ["buero", "Bürobedarf & Porto"],
-  ["raum", "Raumkosten & Miete"],
-  ["fahrt", "Fahrtkosten & Kfz"],
-  ["reise", "Reisekosten"],
-  ["werbung", "Werbung & Marketing"],
-  ["fortbildung", "Fortbildung & Fachliteratur"],
-  ["versicherung", "Versicherungen & Beiträge"],
-  ["beratung", "Steuerberatung & Buchführung"],
-  ["bank", "Kontoführung & Gebühren"],
-  ["bewirtung", "Bewirtung (70 % abzugsfähig)"],
-  ["sonstige", "Sonstige Betriebsausgaben"],
+  ["waren", "Waren, Roh- und Hilfsstoffe", "100"],
+  ["fremd", "Fremdleistungen", "110"],
+  ["afa", "Abschreibungen (AfA) beweglicher Anschaffungen", "130"],
+  ["gwg", "Geringwertige Wirtschaftsgüter (bis 800 € netto)", "132"],
+  ["raum", "Miete für Geschäftsräume", "150"],
+  ["telekom", "Telefon & Internet", "280"],
+  ["reise", "Übernachtung & Reisenebenkosten", "221"],
+  ["fortbildung", "Fortbildung (Kurse, Seminare)", "281"],
+  ["beratung", "Steuerberatung & Buchführung", "194"],
+  ["versicherung", "Beiträge, Gebühren & Versicherungen", "223"],
+  ["software", "Software, Hosting & EDV", "228"],
+  ["buero", "Arbeitsmittel (Bürobedarf, Porto, Fachliteratur)", "229"],
+  ["werbung", "Werbekosten", "224"],
+  ["fahrt", "Fahrtkosten (Treibstoff, Bahn, Flug)", "146"],
+  ["bewirtung", "Bewirtung (70 % abzugsfähig)", "175"],
+  ["bank", "Kontoführung & Bankgebühren", "183"],
+  ["sonstige", "Übrige Betriebsausgaben", "183"],
 ];
 const IN_CATS = [
   ["umsatz", "Umsatz ohne Rechnung"],
   ["sonstige_in", "Sonstige Betriebseinnahmen"],
 ];
 const CAT = Object.fromEntries([...OUT_CATS, ...IN_CATS]);
+const OUT_KZ = Object.fromEntries(OUT_CATS.map(([k, , kz]) => [k, kz]));
+/* Felder der Anlage EÜR in Formular-Reihenfolge (Kennzahlen wie im Formular 2024/2025). */
+const INC_LINES = [["111", "Betriebseinnahmen als umsatzsteuerlicher Kleinunternehmer"], ["112", "Umsatzsteuerpflichtige Betriebseinnahmen"], ["140", "Vereinnahmte Umsatzsteuer"]];
+const OUT_LINES = [["100", "Waren, Rohstoffe und Hilfsstoffe"], ["110", "Bezogene Fremdleistungen"], ["130", "AfA auf bewegliche Wirtschaftsgüter"],
+  ["132", "Aufwendungen für geringwertige Wirtschaftsgüter"], ["150", "Miete/Pacht für Geschäftsräume"], ["280", "Aufwendungen für Telekommunikation"],
+  ["221", "Übernachtungs- und Reisenebenkosten"], ["281", "Fortbildungskosten"], ["194", "Kosten für Rechts- und Steuerberatung, Buchführung"],
+  ["223", "Beiträge, Gebühren, Abgaben und Versicherungen"], ["228", "Laufende EDV-Kosten"], ["229", "Arbeitsmittel"], ["224", "Werbekosten"],
+  ["185", "Gezahlte Vorsteuerbeträge"], ["183", "Übrige unbeschränkt abziehbare Betriebsausgaben"], ["175", "Bewirtungsaufwendungen (abziehbar)"],
+  ["146", "Sonstige tatsächliche Fahrtkosten"]];
 const KU_PREV = 25000, KU_CUR = 100000;
 const VIEWS = [
   ["overview", "Übersicht"],
@@ -379,23 +390,23 @@ function journal(y) {
 }
 function euer(y) {
   const rows = journal(y);
-  const inc = { ku: 0, net: 0, vat: 0, other: 0 };
-  const out = {}; let vorsteuer = 0, nonDeductible = 0;
+  const sums = {}; let nonDeductible = 0;
+  const add = (kz, v) => { if (v) sums[kz] = r2((sums[kz] || 0) + v); };
   for (const r of rows) {
     if (r.kind === "in") {
-      if (r.category === "sonstige_in") { inc.other += r.net; inc.vat += r.vat; }
-      else if (r.vat === 0 && r.ku) inc.ku += r.gross;
-      else { inc.net += r.net; inc.vat += r.vat; }
+      if (r.vat === 0 && r.ku) add("111", r.gross);
+      else { add("112", r.net); add("140", r.vat); }
     } else {
       let amt = r.net;
-      vorsteuer += r.vat;
-      if (r.category === "bewirtung") { nonDeductible += r2(amt * 0.3); amt = r2(amt * 0.7); }
-      out[r.category] = (out[r.category] || 0) + amt;
+      add("185", r.vat);
+      if (r.category === "bewirtung") { nonDeductible = r2(nonDeductible + r2(amt * 0.3)); amt = r2(amt * 0.7); }
+      add(OUT_KZ[r.category] || "183", amt);
     }
   }
-  const incTotal = r2(inc.ku + inc.net + inc.vat + inc.other);
-  const outTotal = r2(Object.values(out).reduce((a, b) => a + b, 0) + vorsteuer);
-  return { rows, inc, out, vorsteuer: r2(vorsteuer), nonDeductible: r2(nonDeductible), incTotal, outTotal, profit: r2(incTotal - outTotal) };
+  const lines = list => list.filter(([kz]) => sums[kz]).map(([kz, label]) => ({ kz, label, amount: sums[kz] }));
+  const inc = lines(INC_LINES), out = lines(OUT_LINES);
+  const incTotal = r2(inc.reduce((a, l) => a + l.amount, 0)), outTotal = r2(out.reduce((a, l) => a + l.amount, 0));
+  return { rows, inc, out, ust: sums["140"] || 0, vorsteuer: sums["185"] || 0, nonDeductible, incTotal, outTotal, profit: r2(incTotal - outTotal) };
 }
 /* Gesamtumsatz nach § 19 UStG: vereinnahmte Entgelte. */
 function kuTurnover(y) {
@@ -603,35 +614,31 @@ function vCustomers() {
 
 function vEuer() {
   const s = sett(); const e = euer(year);
-  const outRows = OUT_CATS.filter(([k]) => e.out[k]).map(([k, l]) => `<tr><td>${esc(l)}</td><td class="amt">${num(e.out[k])}</td></tr>`).join("");
-  const line = (l, v, cls = "") => v ? `<tr class="${cls}"><td>${l}</td><td class="amt">${num(v)}</td></tr>` : "";
+  const rowsOf = list => list.map(l => `<tr><td class="mono">${l.kz}</td><td>${esc(l.label)}</td><td class="amt">${num(l.amount)}</td></tr>`).join("");
   return `
   <div class="head"><div class="head-l"><h3>Einnahmenüberschussrechnung</h3><h1>EÜR ${year}</h1></div>
     <div class="toolbar">${yearSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button></div></div>
-  <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Jahr, in dem das Geld eingeht, Ausgaben im Jahr der Zahlung. Die Summen helfen dir beim Ausfüllen der Anlage EÜR in ELSTER. Die Zeilennummern ändern sich von Jahr zu Jahr, deshalb stehen hier die Bezeichnungen.</p>
+  <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Jahr, in dem das Geld eingeht, Ausgaben im Jahr der Zahlung. Die Kennzahl (Kz.) findest du in ELSTER neben dem passenden Feld der Anlage EÜR. Felder ohne Betrag sind weggelassen, die bleiben in ELSTER leer.</p>
   ${!allReady() ? loading() : `<div class="grid2">
   <div class="table-wrap sheet-card"><table>
-    <thead><tr><th>Betriebseinnahmen</th><th class="r">EUR</th></tr></thead><tbody>
-    ${line("Betriebseinnahmen als umsatzsteuerlicher Kleinunternehmer", e.inc.ku)}
-    ${line("Umsatzsteuerpflichtige Betriebseinnahmen (netto)", e.inc.net)}
-    ${line("Sonstige Betriebseinnahmen", e.inc.other)}
-    ${line("Vereinnahmte Umsatzsteuer", e.inc.vat)}
-    ${e.incTotal ? "" : `<tr><td class="muted">Keine Einnahmen in ${year}</td><td></td></tr>`}
-    <tr class="total"><td>Summe Betriebseinnahmen</td><td class="amt in">${num(e.incTotal)}</td></tr>
+    <thead><tr><th>Kz.</th><th>Betriebseinnahmen</th><th class="r">EUR</th></tr></thead><tbody>
+    ${rowsOf(e.inc)}
+    ${e.incTotal ? "" : `<tr><td></td><td class="muted">Keine Einnahmen in ${year}</td><td></td></tr>`}
+    <tr class="total"><td class="mono">159</td><td>Summe Betriebseinnahmen</td><td class="amt in">${num(e.incTotal)}</td></tr>
     </tbody>
-    <thead><tr><th style="padding-top:24px">Betriebsausgaben</th><th class="r" style="padding-top:24px">EUR</th></tr></thead><tbody>
-    ${outRows}${line("Gezahlte Vorsteuerbeträge", e.vorsteuer)}
-    ${e.outTotal ? "" : `<tr><td class="muted">Keine Ausgaben in ${year}</td><td></td></tr>`}
-    <tr class="total"><td>Summe Betriebsausgaben</td><td class="amt out">${num(e.outTotal)}</td></tr>
+    <thead><tr><th style="padding-top:24px">Kz.</th><th style="padding-top:24px">Betriebsausgaben</th><th class="r" style="padding-top:24px">EUR</th></tr></thead><tbody>
+    ${rowsOf(e.out)}
+    ${e.outTotal ? "" : `<tr><td></td><td class="muted">Keine Ausgaben in ${year}</td><td></td></tr>`}
+    <tr class="total"><td class="mono">199</td><td>Summe Betriebsausgaben</td><td class="amt out">${num(e.outTotal)}</td></tr>
     </tbody><tbody>
-    <tr class="grand"><td>${e.profit >= 0 ? "Gewinn" : "Verlust"}</td><td class="amt">${num(e.profit)}</td></tr>
+    <tr class="grand"><td></td><td>${e.profit >= 0 ? "Gewinn" : "Verlust"}</td><td class="amt">${num(e.profit)}</td></tr>
     </tbody></table></div>
   <aside class="section">
-    ${e.nonDeductible ? `<p class="note">Nicht abzugsfähige Bewirtungskosten (30 %): <span class="mono">${eur(e.nonDeductible)}</span>. Sie sind oben schon herausgerechnet.</p>` : ""}
+    ${e.nonDeductible ? `<p class="note">Nicht abziehbare Bewirtungskosten (30 %, Kz. 165): <span class="mono">${eur(e.nonDeductible)}</span>. Trag sie in ELSTER zusätzlich ein. In den Summen oben sind sie nicht enthalten.</p>` : ""}
     ${s.kleinunternehmer ? `<p class="note">Als Kleinunternehmer ziehst du keine Vorsteuer ab. Ausgaben stehen deshalb mit dem Bruttobetrag in der EÜR.</p>` : `<div class="sheet-card panel"><h2>Umsatzsteuer ${year}</h2>
-      <div class="totals" style="width:100%"><div><span>Vereinnahmte USt</span><span class="mono">${num(e.inc.vat)}</span></div><div><span>− Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
-      <div class="g"><span>${e.inc.vat - e.vorsteuer >= 0 ? "Zahllast" : "Erstattung"}</span><span class="mono">${num(Math.abs(e.inc.vat - e.vorsteuer))}</span></div></div></div>`}
-    <p class="note">Nicht enthalten: Abschreibungen (AfA) für Anschaffungen über 800 € netto, Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
+      <div class="totals" style="width:100%"><div><span>Vereinnahmte USt</span><span class="mono">${num(e.ust)}</span></div><div><span>− Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
+      <div class="g"><span>${e.ust - e.vorsteuer >= 0 ? "Zahllast" : "Erstattung"}</span><span class="mono">${num(Math.abs(e.ust - e.vorsteuer))}</span></div></div></div>`}
+    <p class="note">Abschreibungen trägst du als Ausgabe in der Kategorie „Abschreibungen (AfA)“ ein, ohne Beleg, mit dem Jahresbetrag aus deinem Anlagenverzeichnis. Nicht enthalten sind Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
   </aside></div>`}`;
 }
 
@@ -737,7 +744,7 @@ function entryForm(e) {
         <label class="check small"><input type="checkbox" id="e-rm" name="removeReceipt"> Beleg entfernen</label></div>` : ""}
       ${assets ? `<input id="e-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf"><span class="hint">PDF, JPG, PNG oder WebP bis 20 MB. Foto vom Kassenbon reicht.</span>`
         : `<span class="hint">Belege hochladen geht nur, wenn du das Kontobuch selbst geöffnet hast.</span>`}</div>
-    ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Die erfasst du besser mit deiner Steuerberatung.</p>` : ""}
+    ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Trag dann jedes Jahr nur den Abschreibungsbetrag ein, in der Kategorie „Abschreibungen (AfA)“.</p>` : ""}
   </div>
   <datalist id="party-list">${partyNames(e.kind).map(p => `<option value="${esc(p)}">`).join("")}</datalist>
   <div class="form-foot"><div class="grp">${e.id ? `<button type="button" class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button>` : ""}</div>
@@ -1019,9 +1026,9 @@ async function exportCsv() {
   if (!downloads) return;
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const rows = journal(year).slice().reverse();
-  const lines = [["Datum", "Art", "Belegnr.", "Partner", "Beschreibung", "Kategorie", "Brutto", "Netto", "USt/Vorsteuer", "Beleg vorhanden"].map(q).join(";")];
+  const lines = [["Datum", "Art", "Belegnr.", "Partner", "Beschreibung", "Kategorie", "Brutto", "Netto", "USt/Vorsteuer", "Kennzahl EÜR", "Beleg vorhanden"].map(q).join(";")];
   rows.forEach(r => lines.push([fDate(r.date), r.kind === "in" ? "Einnahme" : "Ausgabe", r.ref, r.party, r.desc, r.src === "inv" ? "Rechnung" : CAT[r.category],
-    num(r.gross), num(r.net), num(r.vat), r.src === "inv" ? "Rechnung" : r.receiptId ? "ja" : "nein"].map(q).join(";")));
+    num(r.gross), num(r.net), num(r.vat), r.kind === "in" ? (r.vat === 0 && r.ku ? "111" : "112") : (OUT_KZ[r.category] || "183"), r.src === "inv" ? "Rechnung" : r.receiptId ? "ja" : "nein"].map(q).join(";")));
   try { await downloads.save({ filename: `Kontobuch-Journal-${year}.csv`, data: "﻿" + lines.join("\r\n") }); toast("CSV gespeichert"); }
   catch (e) { if (e?.code !== "declined") toast("Die CSV-Datei konnte nicht gespeichert werden.", true); }
 }
