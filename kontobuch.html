@@ -326,7 +326,7 @@ let year = new Date().getFullYear();
 const F = { inv: "all", ent: "all", q: "" };
 let ed = null; // invoice editor state
 
-const DEF = { kleinunternehmer: true, invoicePrefix: `RE-${new Date().getFullYear()}-`, nextInvoiceNo: 1, numberPad: 3, paymentDays: 14,
+const DEF = { kleinunternehmer: true, invoicePrefix: "RE-{JAHR}-", nextInvoiceNo: 1, numberPad: 3, paymentDays: 14,
   intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
   closing: "Mit freundlichen Grüßen" };
 const sett = () => ({ ...DEF, ...S.settings });
@@ -592,7 +592,8 @@ function vCustomers() {
   const list = [...S.customers].sort((a, b) => (a.name || "").localeCompare(b.name || "", "de"));
   return `
   <div class="head"><div class="head-l"><h3>Stammdaten</h3><h1>Kunden</h1></div>
-    <div class="toolbar"><button class="btn primary" data-act="new-customer">Kunde anlegen</button></div></div>
+    <div class="toolbar"><label class="btn" for="csv-file">CSV importieren …</label><input type="file" id="csv-file" accept=".csv,text/csv" hidden data-change="import-customers">
+      <button class="btn primary" data-act="new-customer">Kunde anlegen</button></div></div>
   ${!allReady() ? loading() : list.length ? `<div class="table-wrap sheet-card"><table>
     <thead><tr><th>Nr.</th><th>Name</th><th>Ort</th><th>E-Mail</th><th class="r">Umsatz gesamt</th></tr></thead><tbody>
     ${list.map(c => `<tr class="clickable" data-act="edit-customer" data-id="${c.id}"><td class="mono">${esc(c.customerNo || "–")}</td><td>${esc(c.name)}${c.contact ? `<span class="sub">${esc(c.contact)}</span>` : ""}</td>
@@ -655,7 +656,7 @@ function vSettings() {
     </div></fieldset>
     <fieldset><legend>Rechnungen</legend><div class="fields">
       ${fld("invoicePrefix", "Präfix der Rechnungsnummer", "s2")}${fld("nextInvoiceNo", "Nächste laufende Nummer", "s2", 'type="number" min="1" step="1"')}${fld("paymentDays", "Zahlungsziel (Tage)", "s2", 'type="number" min="0" step="1"')}
-      <div class="f full"><span class="hint">Die nächste Rechnung bekommt die Nummer <b class="mono">${esc(nextNumber())}</b>. Wenn du von einem anderen Programm wechselst, setze hier die Nummer fort, damit die Reihe lückenlos bleibt.</span></div>
+      <div class="f full"><span class="hint">Die nächste Rechnung bekommt die Nummer <b class="mono">${esc(nextInvoice().number)}</b>. <span class="mono">{JAHR}</span> im Präfix wird durch das Jahr ersetzt, die Nummern beginnen dann jedes Jahr wieder bei 1. Wenn du von einem anderen Programm wechselst, setze hier die Nummer fort, damit die Reihe lückenlos bleibt.</span></div>
       <div class="f full"><label for="s-intro">Einleitungstext</label><textarea id="s-intro" name="intro">${esc(s.intro)}</textarea></div>
       <div class="f full"><label for="s-closing">Schlusstext</label><textarea id="s-closing" name="closing">${esc(s.closing)}</textarea></div>
     </div></fieldset>
@@ -669,13 +670,22 @@ function vSettings() {
     ${downloads ? "" : `<p class="small muted">Downloads sind in dieser Ansicht nicht verfügbar.</p>`}
   </section>`;
 }
-function nextNumber(n) {
-  const s = sett(); n = n ?? Number(s.nextInvoiceNo || 1);
-  return `${s.invoicePrefix || ""}${String(n).padStart(Number(s.numberPad || 3), "0")}`;
+/* {JAHR} im Präfix: die Nummern laufen pro Jahr und beginnen im neuen Jahr wieder bei 1. */
+function nextInvoice(y = new Date().getFullYear()) {
+  const s = sett(); const raw = s.invoicePrefix || ""; const prefix = raw.replaceAll("{JAHR}", y);
+  const base = !raw.includes("{JAHR}") || Number(s.counterYear) === y ? Number(s.nextInvoiceNo || 1) : 1;
+  const used = S.invoices.filter(i => i.number?.startsWith(prefix)).map(i => (parseInt(i.number.slice(prefix.length), 10) || 0) + 1);
+  const n = Math.max(base, ...used);
+  return { n, y, number: prefix + String(n).padStart(Number(s.numberPad || 3), "0") };
 }
 
 /* ---------- customers ---------- */
-const nextCustNo = () => String(Math.max(1000, ...S.customers.map(c => parseInt(c.customerNo, 10) || 0)) + 1);
+function nextCustNo(taken = S.customers.map(c => c.customerNo)) {
+  const nums = taken.filter(n => /^\d+$/.test(n || ""));
+  if (!nums.length) return "1001";
+  const top = nums.reduce((a, b) => (+b > +a ? b : a));
+  return String(+top + 1).padStart(top.length, "0");
+}
 function customerForm(c = {}) {
   c = { ...c, customerNo: c.customerNo || nextCustNo() };
   const fld = (k, l, cls = "", attrs = "") => `<div class="f ${cls}"><label for="c-${k}">${l}</label><input id="c-${k}" name="${k}" value="${esc(c[k] ?? "")}" ${attrs}></div>`;
@@ -683,7 +693,7 @@ function customerForm(c = {}) {
     ${fld("customerNo", "Kundennummer", "s2", "required")}${fld("name", "Firma / Name", "s4", "required autofocus")}${fld("contact", "Ansprechpartner:in", "full")}
     ${fld("street", "Straße und Hausnummer", "full")}${fld("zip", "PLZ", "s2")}${fld("city", "Ort", "s4")}
     ${fld("country", "Land (falls nicht Deutschland)")}${fld("email", "E-Mail", "", 'type="email"')}
-    ${fld("vatId", "USt-IdNr. des Kunden (optional)", "full")}
+    ${fld("phone", "Telefon")}${fld("vatId", "USt-IdNr. (optional)")}
     <div class="f full"><label for="c-note">Notiz</label><textarea id="c-note" name="note">${esc(c.note || "")}</textarea></div></div>
     <div class="form-foot"><div class="grp">${c.id ? `<button type="button" class="btn danger" data-act="del-customer" data-id="${c.id}">Löschen</button>` : ""}</div>
     <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
@@ -782,7 +792,7 @@ function invoiceEditor() {
   ${ed.ku ? `<p class="note">Kleinunternehmer: Die Rechnung enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
   <div class="form-foot"><div class="grp">${ed.id ? `<button type="button" class="btn danger" data-act="del-invoice" data-id="${ed.id}">Entwurf löschen</button>` : ""}</div>
     <div class="grp"><button type="button" class="btn" data-act="inv-save-draft">Als Entwurf speichern</button>
-    <button class="btn primary" type="submit">Festschreiben als ${esc(nextNumber())}</button></div></div></form>`, { wide: true });
+    <button class="btn primary" type="submit">Festschreiben als ${esc(nextInvoice(yOf(ed.date)).number)}</button></div></div></form>`, { wide: true });
   renderItems();
 }
 function renderItems() {
@@ -831,10 +841,10 @@ async function finalizeInvoice() {
   if (ed.items.some(it => !it.desc)) { toast("Jede Position braucht eine Beschreibung.", true); return; }
   const s = sett();
   if (!s.name || !s.street || !s.taxNo) { toast("Trag zuerst Name, Anschrift und Steuernummer in den Einstellungen ein. Sie müssen auf jeder Rechnung stehen.", true); return; }
-  const n = Number(s.nextInvoiceNo || 1); const number = nextNumber(n);
+  const { n, y, number } = nextInvoice(yOf(ed.date));
   if (S.invoices.some(i => i.number === number)) { toast(`Die Nummer ${number} gibt es schon. Passe die nächste Nummer in den Einstellungen an.`, true); return; }
   const btn = $('form[data-form="invoice"] button[type=submit]'); if (btn) btn.disabled = true;
-  if (!await saveSettings({ nextInvoiceNo: n + 1 })) { if (btn) btn.disabled = false; return; }
+  if (!await saveSettings({ nextInvoiceNo: n + 1, counterYear: y })) { if (btn) btn.disabled = false; return; }
   const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""])); seller.closing = s.closing;
   const id = ed.id || uid();
   if (await saveDoc("invoices", id, invoiceDoc({ status: "open", number, seller, finalizedAt: new Date().toISOString() }))) {
@@ -968,9 +978,9 @@ function markPaid(id) {
 }
 async function cancelInvoice(id) {
   const inv = S.invoices.find(i => i.id === id); if (!inv) return;
-  confirmBox(`Rechnung ${inv.number} stornieren?`, `Es wird eine Stornorechnung mit der nächsten Nummer <b class="mono">${esc(nextNumber())}</b> und negativen Beträgen erstellt. Beide Rechnungen zählen dann nicht mehr zum Umsatz. Schicke die Stornorechnung an deinen Kunden.`, "Stornorechnung erstellen", async () => {
-    const s = sett(); const n = Number(s.nextInvoiceNo || 1); const number = nextNumber(n);
-    if (!await saveSettings({ nextInvoiceNo: n + 1 })) return;
+  confirmBox(`Rechnung ${inv.number} stornieren?`, `Es wird eine Stornorechnung mit der nächsten Nummer <b class="mono">${esc(nextInvoice().number)}</b> und negativen Beträgen erstellt. Beide Rechnungen zählen dann nicht mehr zum Umsatz. Schicke die Stornorechnung an deinen Kunden.`, "Stornorechnung erstellen", async () => {
+    const { n, y, number } = nextInvoice();
+    if (!await saveSettings({ nextInvoiceNo: n + 1, counterYear: y })) return;
     const sid = uid();
     const stor = { ...inv, items: inv.items.map(it => ({ ...it, qty: -Math.abs(it.qty) })), number, date: today(), dueDate: today(), status: "cancelled", storno: true,
       refId: inv.id, refNumber: inv.number, refDate: inv.date, paidDate: null, intro: "", notes: "", finalizedAt: new Date().toISOString(), createdAt: new Date().toISOString() };
@@ -1013,6 +1023,66 @@ async function importJson(file) {
       for (const d of data[coll] || []) { if (!ok) break; const { id, ...rest } = d; if (id) ok = await guard(() => db.collection(coll).doc(id).set(rest)); }
     }
     if (ok) toast(`${n} Datensätze eingespielt`);
+  }, false);
+}
+
+/* ---------- Kunden-Import (CSV, z. B. Export aus Papierkram) ---------- */
+function parseCsv(text) {
+  text = text.replace(/^\ufeff/, "");
+  const sep = (text.split("\n")[0].match(/;/g) || []).length >= (text.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+  const rows = []; let row = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.some(c => c.trim())) rows.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  row.push(cell); if (row.some(c => c.trim())) rows.push(row);
+  const head = (rows.shift() || []).map(h => h.trim());
+  return rows.map(r => Object.fromEntries(head.map((h, i) => [h, (r[i] || "").trim()])));
+}
+function customersFromCsv(text, existing) {
+  const pick = (r, ...keys) => keys.map(k => r[k]).find(v => v) || "";
+  const taken = existing.map(c => c.customerNo);
+  const names = new Set(existing.map(c => (c.name || "").toLowerCase()));
+  const res = { add: [], skipped: 0, ignored: 0 };
+  for (const r of parseCsv(text)) {
+    const name = pick(r, "Name", "Firma");
+    if (!name) continue;
+    if (r.Kontaktart && r.Kontaktart !== "Kunde") { res.ignored++; continue; }
+    let no = pick(r, "Kunden-/Lieferantennr.", "Kundennummer").replace(/^\D+/, "");
+    if (names.has(name.toLowerCase()) || (no && taken.includes(no))) { res.skipped++; continue; }
+    no = no || nextCustNo(taken);
+    taken.push(no); names.add(name.toLowerCase());
+    const country = pick(r, "Land (Post)", "Land");
+    res.add.push({
+      customerNo: no, name,
+      contact: ["Anrede (Standardempfänger)", "Titel (Standardempfänger)", "Vorname (Standardempfänger)", "Nachname (Standardempfänger)"].map(k => r[k]).filter(Boolean).join(" "),
+      street: pick(r, "Straße (Post)", "Straße (Haus)", "Straße"), zip: pick(r, "PLZ (Post)", "PLZ (Haus)", "PLZ"), city: pick(r, "Stadt (Post)", "Stadt (Haus)", "Ort", "Stadt"),
+      country: country === "Deutschland" ? "" : country,
+      email: pick(r, "E-Mail", "E-Mail (Standardempfänger)"), phone: pick(r, "Telefon", "Telefonnummer (Standardempfänger)", "Handynummer (Standardempfänger)"),
+      vatId: pick(r, "UStID", "USt-IdNr."), note: [r.Notiz, r.Website].filter(Boolean).join("\n"),
+    });
+  }
+  return res;
+}
+async function importCustomers(file) {
+  const res = customersFromCsv(await file.text(), S.customers);
+  const extra = [res.skipped && `${res.skipped} schon vorhanden`, res.ignored && `${res.ignored} Lieferanten übersprungen`].filter(Boolean).join(", ");
+  if (!res.add.length) { toast(`Keine neuen Kunden in der Datei${extra ? ` (${extra})` : ""}.`, true); return; }
+  confirmBox(`${res.add.length} Kunden importieren?`, `${res.add.slice(0, 5).map(c => `${esc(c.customerNo)} ${esc(c.name)}`).join("<br>")}${res.add.length > 5 ? "<br>…" : ""}${extra ? `<br><br>${esc(extra)}.` : ""}`, "Importieren", async () => {
+    let done = 0;
+    for (const c of res.add) { if (!await saveDoc("customers", uid(), { ...c, createdAt: new Date().toISOString() })) break; done++; }
+    if (done) toast(`${done} Kunden importiert`);
   }, false);
 }
 
@@ -1083,6 +1153,7 @@ document.addEventListener("change", e => {
       category: fd.get("kind") === "in" ? "umsatz" : "sonstige", vatRate: fd.get("vatRate") ?? old.vatRate });
   }
   if (k === "import" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
+  if (k === "import-customers" && e.target.files[0]) { importCustomers(e.target.files[0]); e.target.value = ""; }
 });
 document.addEventListener("submit", async e => {
   const f = e.target; const kind = f.dataset.form; if (!kind) return;
@@ -1092,6 +1163,7 @@ document.addEventListener("submit", async e => {
     for (const [k, v] of fd.entries()) patch[k] = typeof v === "string" ? v.trim() : v;
     patch.kleinunternehmer = $("#s-ku").checked;
     patch.nextInvoiceNo = Math.max(1, parseInt(patch.nextInvoiceNo, 10) || 1);
+    patch.counterYear = new Date().getFullYear();
     patch.paymentDays = Math.max(0, parseInt(patch.paymentDays, 10) || 0);
     patch.iban = (patch.iban || "").replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim().toUpperCase();
     const b = $("button[type=submit]", f); b.disabled = true;
