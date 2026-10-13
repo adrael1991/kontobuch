@@ -5,9 +5,10 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset };")(
-  { getItem: () => null, setItem() {} }, { hash: "" });
-const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset } = app;
+const app = new Function("localStorage", "location", "window", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport };")(
+  { getItem: () => null, setItem() {} }, { hash: "" }, { jspdf: null });
+const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport } = app;
+
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
 S.settings = { invoicePrefix: "RE-2026-", nextInvoiceNo: 41 };
@@ -58,8 +59,8 @@ assert.strictEqual(lastCategory("out", "Strato GmbH"), undefined);
 
 // EÜR nach Kennzahlen: gleiche Felder zusammengefasst, Bewirtung zu 70 %, Zufluss im Zahlungsjahr.
 S.invoices = [
-  { status: "paid", paidDate: "2026-03-01", ku: true, items: [{ qty: 2, price: 100 }] },
-  { status: "paid", paidDate: "2027-01-02", ku: true, items: [{ qty: 1, price: 50 }] },
+  { number: "RE-2026-001", status: "paid", paidDate: "2026-03-01", ku: true, items: [{ qty: 2, price: 100 }] },
+  { number: "RE-2027-001", status: "paid", paidDate: "2027-01-02", ku: true, items: [{ qty: 1, price: 50 }] },
 ];
 S.entries = [
   { kind: "out", date: "2026-02-01", gross: 10, category: "bank", ku: true },
@@ -143,4 +144,56 @@ const afaLine = euerWithAssets.out.find(l => l.kz === "130");
 assert.strictEqual(afaLine.amount, 998.26);
 assert.strictEqual(euerWithAssets.afaFromAssets, 810);
 
+// Teil B: CRC-32 & ZIP-Archivierung (GoBD-Jahresabschluss)
+const testBytes = Buffer.from("123456789");
+assert.strictEqual(crc32(testBytes), 0xcbf43926);
+assert.strictEqual(crc32(new Uint8Array(0)), 0);
+
+const zipFiles = [
+  { name: "README-Abschluss-2026.txt", data: "GoBD Archiv 2026" },
+  { name: "Journal-2026.csv", data: "Datum;Art;Brutto\r\n2026-01-01;Einnahme;100" },
+  { name: "Ausgangsrechnungen/", data: "" },
+  { name: "Ausgangsrechnungen/Rechnung_RE-2026-001.pdf", data: Buffer.from("%PDF-1.4 test") },
+  { name: "Eingangsbelege/Beleg_2026-01-01_Test.pdf", data: new Uint8Array([1, 2, 3, 4]) }
+];
+const zipBytes = createZip(zipFiles);
+assert(zipBytes instanceof Uint8Array);
+assert(zipBytes.length > 100);
+
+// ZIP-Signaturen prüfen:
+const dv = new DataView(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+assert.strictEqual(dv.getUint32(0, true), 0x04034b50); // Local File Header: PK\x03\x04
+
+// End of Central Directory Signature (letzte 22 Bytes)
+const eocdSig = dv.getUint32(zipBytes.length - 22, true);
+assert.strictEqual(eocdSig, 0x06054b50); // EOCD: PK\x05\x06
+// Total entries in EOCD
+assert.strictEqual(dv.getUint16(zipBytes.length - 22 + 10, true), 5);
+
+// Journal CSV
+const jCsv = generateJournalCsv(2026);
+assert(jCsv.startsWith("\ufeff"), "BOM fehlt in Journal CSV");
+assert(jCsv.includes("Kennzahl EÜR"));
+assert(jCsv.includes("Rechnung RE-2026-001"));
+
+// Anlagenverzeichnis CSV
+const aCsv = generateAssetsCsv(2026);
+assert(aCsv.startsWith("\ufeff"), "BOM fehlt in Anlagenverzeichnis CSV");
+assert(aCsv.includes("Buchwert 01.01.2026"));
+assert(aCsv.includes("Roland Plotter"));
+
+// EÜR-Bericht
+const eRep = generateEuerReport(2026);
+assert(eRep.includes("EINNAHMENÜBERSCHUSSRECHNUNG (EÜR) 2026"));
+assert(eRep.includes("BETRIEBSEINNAHMEN"));
+assert(eRep.includes("BETRIEBSAUSGABEN"));
+assert(eRep.includes("GEWINN") || eRep.includes("VERLUST"));
+
+// README-Bericht
+const rRep = generateReadmeReport(2026, { invoicesCount: 1, entriesCount: 3, receiptsTotal: 2, receiptsSaved: 2 });
+assert(rRep.includes("GoBD-JAHRESABSCHLUSS"));
+assert(rRep.includes("§ 147 AO"));
+assert(rRep.includes("Ausgangsrechnungen:   1 Dokument(e)"));
+
 console.log("OK");
+
