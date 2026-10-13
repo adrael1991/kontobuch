@@ -194,9 +194,24 @@ legend { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; ma
 /* modal */
 #modal { position: fixed; inset: 0; background: rgb(10 16 14 / .45); display: flex; align-items: flex-start; justify-content: center; padding: max(24px, env(safe-area-inset-top, 0px)) 16px 24px; overflow-y: auto; z-index: 20; }
 .dialog { background: var(--sheet); border-radius: 10px; width: min(640px, 100%); box-shadow: 0 20px 60px rgb(0 0 0 / .3); display: flex; flex-direction: column; }
-.dialog.wide { width: min(960px, 100%); }
+.dialog.wide { width: min(1040px, 100%); }
+.dialog.extra-wide { width: min(1180px, 100%); }
 .dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--rule); gap: 12px; }
 .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+/* receipt preview & split dialog */
+.split-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) {
+  .split-layout { grid-template-columns: minmax(0, 1fr); }
+}
+.preview-pane { display: flex; flex-direction: column; gap: 8px; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r); padding: 10px; position: sticky; top: 12px; }
+.preview-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .82rem; }
+.preview-bar .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.preview-content { border-radius: 4px; overflow: hidden; background: #fff; border: 1px solid var(--rule); display: flex; align-items: center; justify-content: center; min-height: 260px; }
+.preview-frame { width: 100%; height: 500px; border: 0; background: #fff; }
+.preview-img { width: 100%; max-height: 500px; object-fit: contain; }
+.preview-modal-frame { width: 100%; height: 72vh; border: 0; background: #fff; }
+.preview-modal-img { max-width: 100%; max-height: 72vh; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px; }
 
 /* invoice preview, DIN 5008 flavour */
 .paper { background: #fff; color: #1a1a1a; border: 1px solid var(--rule); padding: 40px 44px; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 22px; color-scheme: light; }
@@ -445,10 +460,11 @@ function toast(msg, err) {
 
 /* ---------- modal ---------- */
 let lastFocus = null;
-function openModal(title, body, { wide } = {}) {
+function openModal(title, body, { wide, extraWide } = {}) {
   lastFocus = document.activeElement;
   const m = $("#modal");
-  m.innerHTML = `<div class="dialog ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="m-title">
+  const cls = extraWide ? "extra-wide" : (wide ? "wide" : "");
+  m.innerHTML = `<div class="dialog ${cls}" role="dialog" aria-modal="true" aria-labelledby="m-title">
     <header><h2 id="m-title">${esc(title)}</h2><button class="icon-btn" data-act="close" aria-label="Schließen">×</button></header>
     <div class="dialog-body">${body}</div></div>`;
   m.hidden = false;
@@ -582,7 +598,7 @@ function entriesRows() {
     ${rows.map(r => `<tr class="clickable" data-act="${r.src === "inv" ? "open-invoice" : "edit-entry"}" data-id="${r.id}">
       <td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || "")}</span></td>
       <td class="small">${r.src === "inv" ? "Rechnung" : esc(CAT[r.category] || r.category)}</td>
-      <td class="small">${r.src === "inv" ? `<span class="mono">${esc(r.ref)}</span>` : r.receiptId ? `<a href="/_blob/${esc(r.receiptId)}" target="_blank" rel="noopener" data-stop>Ansehen</a>` : '<span class="muted">fehlt</span>'}</td>
+      <td class="small">${r.src === "inv" ? `<span class="mono">${esc(r.ref)}</span>` : r.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(r.receiptId)}" data-name="${esc(r.receiptName || r.party || 'Beleg')}" data-stop title="Beleg-Vorschau öffnen">👁 Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(r.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">fehlt</span>'}</td>
       <td class="amt in">${r.kind === "in" ? num(r.gross) : ""}</td><td class="amt out">${r.kind === "out" ? num(r.gross) : ""}</td></tr>`).join("")}
     <tr class="total"><td colspan="4">Summe ${rows.length} Buchungen</td><td class="amt in">${num(sIn)}</td><td class="amt out">${num(sOut)}</td></tr>
     </tbody></table></div>`;
@@ -722,33 +738,79 @@ function lastCategory(kind, party) {
   const p = party.trim().toLowerCase();
   return p && S.entries.filter(x => x.kind === kind && (x.party || "").toLowerCase() === p).sort((a, b) => b.date.localeCompare(a.date))[0]?.category;
 }
+function receiptPreviewHtml(src, name) {
+  if (!src) {
+    return `<div class="preview-pane">
+      <div class="preview-bar"><span class="title">Beleg-Vorschau</span></div>
+      <div class="preview-content" style="color:var(--muted);text-align:center;padding:24px;font-size:.85rem">
+        <span>Noch kein Beleg ausgewählt</span>
+      </div>
+    </div>`;
+  }
+  const ext = (name || src || "").split("?")[0].split(".").pop().toLowerCase();
+  const isImg = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
+  const content = isImg
+    ? `<img class="preview-img" src="${esc(src)}" alt="${esc(name || "Beleg")}">`
+    : `<iframe class="preview-frame" src="${esc(src)}" title="${esc(name || "Beleg")}"></iframe>`;
+  return `<div class="preview-pane">
+    <div class="preview-bar">
+      <span class="title" title="${esc(name || "Beleg")}">${esc(name || "Beleg")}</span>
+      <a class="btn sm ghost" href="${esc(src)}" target="_blank" rel="noopener" style="margin-left:auto">In neuem Tab öffnen ↗</a>
+    </div>
+    <div class="preview-content">
+      ${content}
+    </div>
+  </div>`;
+}
+function openReceiptModal(id, name = "Beleg") {
+  const url = `/_blob/${encodeURIComponent(id)}`;
+  const ext = (name || "").split("?")[0].split(".").pop().toLowerCase();
+  const isImg = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
+  const content = isImg
+    ? `<img class="preview-modal-img" src="${url}" alt="${esc(name)}">`
+    : `<iframe class="preview-modal-frame" src="${url}" title="${esc(name)}"></iframe>`;
+  openModal(`Beleg: ${name}`, `
+    <div class="toolbar" style="margin-bottom:12px">
+      <a class="btn primary" href="${url}" target="_blank" rel="noopener">In neuem Tab öffnen ↗</a>
+      <a class="btn" href="${url}" download="${esc(name)}">Herunterladen</a>
+    </div>
+    <div class="preview-content" style="background:#fff;border:1px solid var(--rule);border-radius:var(--r);overflow:hidden">
+      ${content}
+    </div>`, { extraWide: true });
+}
 function entryForm(e) {
   const s = sett();
   const ku = e.id ? !!e.ku : !!s.kleinunternehmer;
   const cats = e.kind === "in" ? IN_CATS : OUT_CATS;
   openModal(e.id ? (e.kind === "in" ? "Einnahme bearbeiten" : "Ausgabe bearbeiten") : (e.kind === "in" ? "Einnahme erfassen" : "Ausgabe erfassen"),
-  `<form class="form" data-form="entry" data-id="${e.id || ""}" autocomplete="off"><div class="fields">
-    <div class="f full"><span class="lbl">Art</span><div class="seg" role="radiogroup" aria-label="Art">
-      <label><input type="radio" name="kind" value="out" ${e.kind !== "in" ? "checked" : ""} data-change="entry-kind"><span>Ausgabe</span></label>
-      <label><input type="radio" name="kind" value="in" ${e.kind === "in" ? "checked" : ""} data-change="entry-kind"><span>Einnahme</span></label></div></div>
-    <div class="f s2"><label for="e-date">Datum der Zahlung</label><input id="e-date" type="date" name="date" value="${esc(e.date || today())}" required></div>
-    <div class="f s2"><label for="e-gross">Betrag brutto (€)</label><input id="e-gross" name="gross" inputmode="decimal" value="${esc(numIn(e.gross))}" placeholder="0,00" required autofocus></div>
-    ${ku ? `<div class="f s2"><span class="lbl">Umsatzsteuer</span><span class="hint" style="padding-top:8px">${e.kind === "in" ? "keine (§ 19 UStG)" : "kein Vorsteuerabzug"}</span></div>`
-      : `<div class="f s2"><label for="e-vat">darin USt</label><select id="e-vat" name="vatRate">${[19, 7, 0].map(r => `<option value="${r}" ${Number(e.vatRate ?? 19) === r ? "selected" : ""}>${r} %</option>`).join("")}</select></div>`}
-    <div class="f"><label for="e-party">${e.kind === "in" ? "Von (Kunde / Zahler)" : "An (Lieferant / Händler)"}</label><input id="e-party" name="party" value="${esc(e.party || "")}" list="party-list"></div>
-    <div class="f"><label for="e-cat">Kategorie</label><select id="e-cat" name="category">${cats.map(([k, l]) => `<option value="${k}" ${e.category === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
-    <div class="f s4"><label for="e-desc">Beschreibung</label><input id="e-desc" name="desc" value="${esc(e.desc || "")}" placeholder="z. B. Druckerpapier, Domain-Verlängerung"></div>
-    <div class="f s2"><label for="e-ref">Belegnummer</label><input id="e-ref" name="ref" value="${esc(e.ref || "")}" placeholder="optional"></div>
-    <div class="f full"><span class="lbl">Beleg</span>
-      ${e.receiptId ? `<div class="toolbar"><a class="btn sm" href="/_blob/${esc(e.receiptId)}" target="_blank" rel="noopener">${esc(e.receiptName || "Beleg ansehen")}</a>
-        <label class="check small"><input type="checkbox" id="e-rm" name="removeReceipt"> Beleg entfernen</label></div>` : ""}
-      ${assets ? `<input id="e-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf,.xml,text/xml,application/xml"><span class="hint">PDF, JPG, PNG, WebP oder E-Rechnung (ZUGFeRD / XRechnung XML). E-Rechnungen werden automatisch erkannt und ausgefüllt!</span>`
-        : `<span class="hint">Belege hochladen geht nur, wenn du das Kontobuch selbst geöffnet hast.</span>`}</div>
-    ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Trag dann jedes Jahr nur den Abschreibungsbetrag ein, in der Kategorie „Abschreibungen (AfA)“.</p>` : ""}
+  `<form class="form" data-form="entry" data-id="${e.id || ""}" autocomplete="off">
+  <div class="split-layout">
+    <div class="fields">
+      <div class="f full"><span class="lbl">Art</span><div class="seg" role="radiogroup" aria-label="Art">
+        <label><input type="radio" name="kind" value="out" ${e.kind !== "in" ? "checked" : ""} data-change="entry-kind"><span>Ausgabe</span></label>
+        <label><input type="radio" name="kind" value="in" ${e.kind === "in" ? "checked" : ""} data-change="entry-kind"><span>Einnahme</span></label></div></div>
+      <div class="f s2"><label for="e-date">Datum der Zahlung</label><input id="e-date" type="date" name="date" value="${esc(e.date || today())}" required></div>
+      <div class="f s2"><label for="e-gross">Betrag brutto (€)</label><input id="e-gross" name="gross" inputmode="decimal" value="${esc(numIn(e.gross))}" placeholder="0,00" required autofocus></div>
+      ${ku ? `<div class="f s2"><span class="lbl">Umsatzsteuer</span><span class="hint" style="padding-top:8px">${e.kind === "in" ? "keine (§ 19 UStG)" : "kein Vorsteuerabzug"}</span></div>`
+        : `<div class="f s2"><label for="e-vat">darin USt</label><select id="e-vat" name="vatRate">${[19, 7, 0].map(r => `<option value="${r}" ${Number(e.vatRate ?? 19) === r ? "selected" : ""}>${r} %</option>`).join("")}</select></div>`}
+      <div class="f"><label for="e-party">${e.kind === "in" ? "Von (Kunde / Zahler)" : "An (Lieferant / Händler)"}</label><input id="e-party" name="party" value="${esc(e.party || "")}" list="party-list"></div>
+      <div class="f"><label for="e-cat">Kategorie</label><select id="e-cat" name="category">${cats.map(([k, l]) => `<option value="${k}" ${e.category === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+      <div class="f s4"><label for="e-desc">Beschreibung</label><input id="e-desc" name="desc" value="${esc(e.desc || "")}" placeholder="z. B. Druckerpapier, Domain-Verlängerung"></div>
+      <div class="f s2"><label for="e-ref">Belegnummer</label><input id="e-ref" name="ref" value="${esc(e.ref || "")}" placeholder="optional"></div>
+      <div class="f full"><span class="lbl">Beleg</span>
+        ${e.receiptId ? `<div class="toolbar"><a class="btn sm" href="/_blob/${esc(e.receiptId)}" target="_blank" rel="noopener">${esc(e.receiptName || "Beleg ansehen")}</a>
+          <label class="check small"><input type="checkbox" id="e-rm" name="removeReceipt"> Beleg entfernen</label></div>` : ""}
+        ${assets ? `<input id="e-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf,.xml,text/xml,application/xml"><span class="hint">PDF, JPG, PNG, WebP oder E-Rechnung (ZUGFeRD / XRechnung XML). E-Rechnungen werden automatisch erkannt und ausgefüllt!</span>`
+          : `<span class="hint">Belege hochladen geht nur, wenn du das Kontobuch selbst geöffnet hast.</span>`}</div>
+      ${e.kind !== "in" && !e.id ? `<p class="note full f">Anschaffungen über 800 € netto werden über mehrere Jahre abgeschrieben. Trag dann jedes Jahr nur den Abschreibungsbetrag ein, in der Kategorie „Abschreibungen (AfA)“.</p>` : ""}
+    </div>
+    <div id="receipt-preview-container">
+      ${receiptPreviewHtml(e.receiptId ? `/_blob/${esc(e.receiptId)}` : null, e.receiptName || (e.receiptId ? "Beleg" : ""))}
+    </div>
   </div>
   <datalist id="party-list">${partyNames(e.kind).map(p => `<option value="${esc(p)}">`).join("")}</datalist>
   <div class="form-foot"><div class="grp">${e.id ? `<button type="button" class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button>` : ""}</div>
-  <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
+  <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`, { wide: true });
 }
 async function submitEntry(form) {
   const fd = new FormData(form); const id = form.dataset.id || uid();
@@ -882,6 +944,7 @@ function openInvoice(id) {
       <span class="chip in" title="Entspricht der europäischen Norm für elektronische Rechnungen">ZUGFeRD 2.2 · EN 16931</span></div>
     <div class="toolbar">
       <button class="btn primary" data-act="pdf" data-id="${inv.id}" ${downloads && window.jspdf ? "" : "disabled"}>PDF mit ZUGFeRD</button>
+      <button class="btn" data-act="pdf-open" data-id="${inv.id}" ${window.jspdf ? "" : "disabled"} title="PDF in neuem Tab öffnen">Im Browser öffnen ↗</button>
       <button class="btn" data-act="xml" data-id="${inv.id}" ${downloads ? "" : "disabled"}>E-Rechnung (XML)</button>
       ${st === "open" || st === "overdue" ? `<button class="btn" data-act="mark-paid" data-id="${inv.id}">Als bezahlt markieren</button>` : ""}
       ${st === "paid" ? `<button class="btn" data-act="unpay" data-id="${inv.id}">Zahlung zurücknehmen</button>` : ""}
@@ -1339,6 +1402,11 @@ async function extractEInvoiceFromPdf(arrayBuffer) {
 async function handleReceiptFileInput(input) {
   const file = input.files[0];
   if (!file) return;
+  const container = $("#receipt-preview-container");
+  if (container) {
+    const objUrl = URL.createObjectURL(file);
+    container.innerHTML = receiptPreviewHtml(objUrl, file.name);
+  }
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   let parsed = null;
   try {
@@ -1456,6 +1524,18 @@ async function savePdf(inv) {
     const name = `${inv.storno ? "Stornorechnung" : "Rechnung"}_${inv.number}.pdf`.replace(/[\/\\:*?"<>|]/g, "-");
     await downloads.save({ filename: name, data: blob }); toast("PDF mit ZUGFeRD gespeichert");
   } catch (e) { if (e?.code !== "declined") { console.error(e); toast("Das PDF konnte nicht gespeichert werden.", true); } }
+}
+function openPdfInTab(inv) {
+  if (!inv) return;
+  if (!window.jspdf) { toast("PDF-Vorschau nicht verfügbar.", true); return; }
+  try {
+    const blob = invoicePdf(inv);
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  } catch (err) {
+    console.error(err);
+    toast("PDF konnte nicht geöffnet werden.", true);
+  }
 }
 async function saveFacturXXml(inv) {
   if (!downloads) { toast("Download ist hier nicht verfügbar.", true); return; }
@@ -1606,6 +1686,8 @@ const ACT = {
   unpay: d => { const inv = S.invoices.find(i => i.id === d.id); confirmBox("Zahlung zurücknehmen?", `Rechnung ${esc(inv.number)} wird wieder als offen geführt.`, "Zurücknehmen",
     async () => { const { id, ...rest } = inv; await saveDoc("invoices", id, { ...rest, status: "open", paidDate: null }); }); },
   pdf: d => savePdf(S.invoices.find(i => i.id === d.id)),
+  "pdf-open": d => openPdfInTab(S.invoices.find(i => i.id === d.id)),
+  "view-receipt": d => openReceiptModal(d.id, d.name),
   xml: d => saveFacturXXml(S.invoices.find(i => i.id === d.id)),
   "dup-invoice": d => newInvoice(S.invoices.find(i => i.id === d.id)),
   "cancel-invoice": d => cancelInvoice(d.id),
@@ -1664,6 +1746,17 @@ document.addEventListener("change", e => {
   if (k === "import" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
   if (k === "import-customers" && e.target.files[0]) { importCustomers(e.target.files[0]); e.target.value = ""; }
   if (e.target.id === "e-file") handleReceiptFileInput(e.target);
+  if (e.target.id === "e-rm") {
+    const container = $("#receipt-preview-container");
+    if (container) {
+      if (e.target.checked) container.innerHTML = receiptPreviewHtml(null, null);
+      else {
+        const id = e.target.form?.dataset?.id;
+        const old = S.entries.find(x => x.id === id);
+        if (old?.receiptId) container.innerHTML = receiptPreviewHtml(`/_blob/${esc(old.receiptId)}`, old.receiptName || "Beleg");
+      }
+    }
+  }
 });
 document.addEventListener("submit", async e => {
   const f = e.target; const kind = f.dataset.form; if (!kind) return;

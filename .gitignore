@@ -10,3 +10,4 @@ Rechnung_*.pdf
 Stornorechnung_*.pdf
 __pycache__/
 beispiel-*
+.DS_Store
