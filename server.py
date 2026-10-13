@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("KONTOBUCH_DATA", ROOT / "data"))
 PORT = int(os.environ.get("KONTOBUCH_PORT", "8080"))
-COLLS = {"book", "customers", "invoices", "entries", "fixedAssets"}
+COLLS = {"book", "customers", "invoices", "entries", "fixedAssets", "quotes"}
 ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 FILE_TYPES = {
     "application/pdf": ".pdf",

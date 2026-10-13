@@ -5,9 +5,9 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", "window", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport };")(
+const app = new Function("localStorage", "location", "window", js + "; return { S, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport };")(
   { getItem: () => null, setItem() {} }, { hash: "" }, { jspdf: null });
-const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport } = app;
+const { S, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport } = app;
 
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
@@ -190,10 +190,85 @@ assert(eRep.includes("BETRIEBSAUSGABEN"));
 assert(eRep.includes("GEWINN") || eRep.includes("VERLUST"));
 
 // README-Bericht
-const rRep = generateReadmeReport(2026, { invoicesCount: 1, entriesCount: 3, receiptsTotal: 2, receiptsSaved: 2 });
+const rRep = generateReadmeReport(2026, { invoicesCount: 1, quotesCount: 2, entriesCount: 3, receiptsTotal: 2, receiptsSaved: 2 });
 assert(rRep.includes("GoBD-JAHRESABSCHLUSS"));
 assert(rRep.includes("§ 147 AO"));
 assert(rRep.includes("Ausgangsrechnungen:   1 Dokument(e)"));
+assert(rRep.includes("Angebote:             2 Dokument(e)"));
+
+// Angebote: Angebotsnummern-Generierung
+S.settings = { quotePrefix: "ANG-{JAHR}-", nextQuoteNo: 1, quoteCounterYear: 2026 };
+S.quotes = [];
+assert.strictEqual(nextQuote(2026).number, "ANG-2026-001");
+S.quotes = [{ number: "ANG-2026-001" }, { number: "ANG-2026-002" }];
+assert.strictEqual(nextQuote(2026).number, "ANG-2026-003");
+// Neues Jahr beginnt wieder bei 1
+assert.strictEqual(nextQuote(2027).number, "ANG-2027-001");
+
+// Angebots-Statuslogik
+assert.strictEqual(quoteState({ status: "draft" }), "draft");
+assert.strictEqual(quoteState({ status: "open", validUntil: "2099-12-31" }), "open");
+assert.strictEqual(quoteState({ status: "open", validUntil: "2020-01-01" }), "expired");
+assert.strictEqual(quoteState({ status: "accepted" }), "accepted");
+assert.strictEqual(quoteState({ status: "billed" }), "billed");
+assert.strictEqual(quoteState({ status: "rejected" }), "rejected");
+
+// Zeitraum-Filterung: matchPeriod
+assert.strictEqual(matchPeriod("2026-02-15", "all"), true);
+assert.strictEqual(matchPeriod("2026-02-15", "q1"), true);
+assert.strictEqual(matchPeriod("2026-05-10", "q1"), false);
+assert.strictEqual(matchPeriod("2026-05-10", "q2"), true);
+assert.strictEqual(matchPeriod("2026-08-20", "q3"), true);
+assert.strictEqual(matchPeriod("2026-11-01", "q4"), true);
+assert.strictEqual(matchPeriod("2026-03-05", "03"), true);
+assert.strictEqual(matchPeriod("2026-04-05", "03"), false);
+
+// UStVA-Berechnung & Monats-/Quartalsfilter für Regelbesteuerer
+S.settings = { kleinunternehmer: false };
+S.invoices = [
+  // Q1: Januar 2026 - Netto 1000 €, 19% USt = 190 €
+  { id: "inv1", number: "RE-2026-001", status: "paid", paidDate: "2026-01-15", ku: false, items: [{ qty: 1, price: 1000, vat: 19 }] },
+  // Q1: Februar 2026 - Netto 500 €, 7% USt = 35 €
+  { id: "inv2", number: "RE-2026-002", status: "paid", paidDate: "2026-02-20", ku: false, items: [{ qty: 1, price: 500, vat: 7 }] },
+  // Q2: April 2026 - Netto 2000 €, 19% USt = 380 €
+  { id: "inv3", number: "RE-2026-003", status: "paid", paidDate: "2026-04-10", ku: false, items: [{ qty: 1, price: 2000, vat: 19 }] }
+];
+S.entries = [
+  // Q1: Januar 2026 - Ausgabe 200 € netto + 38 € Vorsteuer (19%) = 238 € brutto
+  { id: "e1", kind: "out", date: "2026-01-20", gross: 238, category: "material", ku: false, vatRate: 19 },
+  // Q2: Mai 2026 - Ausgabe 100 € netto + 19 € Vorsteuer
+  { id: "e2", kind: "out", date: "2026-05-15", gross: 119, category: "software", ku: false, vatRate: 19 }
+];
+S.fixedAssets = [];
+
+// UStVA für Januar 2026 ("01"):
+const uJan = euer(2026, "01");
+assert.strictEqual(uJan.ust19Base, 1000);
+assert.strictEqual(uJan.ust7Base, 0);
+assert.strictEqual(uJan.ust, 190);
+assert.strictEqual(uJan.vorsteuer, 38);
+assert.strictEqual(uJan.ustZahllast, 152); // 190 - 38
+
+// UStVA für 1. Quartal 2026 ("q1"):
+const uQ1 = euer(2026, "q1");
+assert.strictEqual(uQ1.ust19Base, 1000);
+assert.strictEqual(uQ1.ust7Base, 500);
+assert.strictEqual(uQ1.ust, 225); // 190 + 35
+assert.strictEqual(uQ1.vorsteuer, 38);
+assert.strictEqual(uQ1.ustZahllast, 187); // 225 - 38
+
+// Jahreswechsel-Erinnerung
+const cy = new Date().getFullYear();
+const prevY = cy - 1;
+S.settings = { dismissedReminders: {} };
+S.invoices = [{ id: "prevInv", status: "paid", paidDate: `${prevY}-05-01`, items: [{ qty: 1, price: 100 }] }];
+const reminderHtml = yearCloseReminder();
+assert(reminderHtml.includes("Jahresabschluss & Datensicherung"), "Reminder HTML should show when previous year has data");
+assert(reminderHtml.includes("export-year-zip-explicit"), "Reminder should have export button");
+
+// Nach Ausblenden / Dismissed -> kein Banner mehr
+S.settings = { dismissedReminders: { [prevY]: true } };
+assert.strictEqual(yearCloseReminder(), "");
 
 console.log("OK");
 

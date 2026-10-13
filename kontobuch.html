@@ -129,6 +129,10 @@ tr.grand td { border-bottom: 3px double var(--ink); font-weight: 600; }
 .chip.open { background: var(--info-soft); color: var(--info); }
 .chip.overdue { background: var(--warn-soft); color: var(--warn); }
 .chip.paid { background: var(--accent-soft); color: var(--haben); }
+.chip.accepted { background: var(--accent-soft); color: var(--haben); }
+.chip.billed { background: var(--info-soft); color: var(--ink); }
+.chip.rejected { background: var(--soll-soft); color: var(--soll); }
+.chip.expired { background: var(--warn-soft); color: var(--warn); }
 .chip.cancelled { background: var(--soll-soft); color: var(--soll); }
 .chip.in { background: var(--accent-soft); color: var(--haben); }
 .chip.out { background: var(--soll-soft); color: var(--soll); }
@@ -311,6 +315,7 @@ const OUT_LINES = [["100", "Waren, Rohstoffe und Hilfsstoffe"], ["110", "Bezogen
 const KU_PREV = 25000, KU_CUR = 100000;
 const VIEWS = [
   ["overview", "Übersicht"],
+  ["quotes", "Angebote"],
   ["invoices", "Rechnungen"],
   ["entries", "Einnahmen & Ausgaben"],
   ["customers", "Kunden"],
@@ -346,18 +351,23 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch { return null
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
 /* ---------- state ---------- */
-const S = { settings: {}, customers: [], invoices: [], entries: [], fixedAssets: [], ready: {}, conn: "pending" };
+const S = { settings: {}, customers: [], quotes: [], invoices: [], entries: [], fixedAssets: [], ready: {}, conn: "pending" };
 let db = null, assets = null, downloads = null;
 let view = VIEWS.some(v => v[0] === location.hash.slice(1)) ? location.hash.slice(1) : (lsGet("kb.view") || "overview");
 let year = new Date().getFullYear();
-const F = { inv: "all", ent: "all", q: "" };
+let period = "all";
+const F = { inv: "all", quo: "all", ent: "all", q: "" };
 let ed = null; // invoice editor state
+let edQuote = null; // quote editor state
 
 const DEF = { kleinunternehmer: true, invoicePrefix: "RE-{JAHR}-", nextInvoiceNo: 1, numberPad: 3, paymentDays: 14,
+  quotePrefix: "ANG-{JAHR}-", nextQuoteNo: 1, quoteValidityDays: 30,
+  quoteIntro: "Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:",
+  quoteClosing: "Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.",
   intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
   closing: "Mit freundlichen Grüßen" };
 const sett = () => ({ ...DEF, ...S.settings });
-const allReady = () => ["settings", "customers", "invoices", "entries", "fixedAssets"].every(k => S.ready[k]);
+const allReady = () => ["settings", "customers", "quotes", "invoices", "entries", "fixedAssets"].every(k => S.ready[k]);
 
 /* ---------- money logic ---------- */
 function calcInv(inv) {
@@ -382,25 +392,75 @@ const invState = inv => {
   if (inv.status === "open" && inv.dueDate && inv.dueDate < today()) return "overdue";
   return inv.status || "draft";
 };
-const STATUS_LABEL = { draft: "Entwurf", open: "Offen", overdue: "Überfällig", paid: "Bezahlt", cancelled: "Storniert" };
-const chip = st => `<span class="chip ${st}">${STATUS_LABEL[st]}</span>`;
+const quoteState = q => {
+  if (q.status === "open" && q.validUntil && q.validUntil < today()) return "expired";
+  return q.status || "draft";
+};
+const STATUS_LABEL = {
+  draft: "Entwurf",
+  open: "Offen",
+  overdue: "Überfällig",
+  paid: "Bezahlt",
+  cancelled: "Storniert",
+  accepted: "Angenommen",
+  billed: "Abgerechnet",
+  rejected: "Abgelehnt",
+  expired: "Abgelaufen"
+};
+const chip = st => `<span class="chip ${st}">${STATUS_LABEL[st] || st}</span>`;
 const custName = id => S.customers.find(c => c.id === id)?.name;
 const invTitle = inv => inv.recipient ? inv.recipient.split("\n")[0] : (custName(inv.customerId) || "Ohne Empfänger");
 
+const PERIOD_OPTS = [
+  ["all", "Ganzes Jahr"],
+  ["q1", "1. Quartal (Q1: Jan–Mär)"],
+  ["q2", "2. Quartal (Q2: Apr–Jun)"],
+  ["q3", "3. Quartal (Q3: Jul–Sep)"],
+  ["q4", "4. Quartal (Q4: Okt–Dez)"],
+  ["01", "Januar"],
+  ["02", "Februar"],
+  ["03", "März"],
+  ["04", "April"],
+  ["05", "Mai"],
+  ["06", "Juni"],
+  ["07", "Juli"],
+  ["08", "August"],
+  ["09", "September"],
+  ["10", "Oktober"],
+  ["11", "November"],
+  ["12", "Dezember"]
+];
+const periodSel = () => `<label class="muted small" for="period-sel">Zeitraum</label>
+  <select class="period" id="period-sel" data-change="period">${PERIOD_OPTS.map(([k, l]) => `<option value="${k}" ${k === period ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+const periodLabel = (p, y) => {
+  const opt = PERIOD_OPTS.find(x => x[0] === p);
+  return opt && p !== "all" ? `${opt[1]} ${y}` : `${y}`;
+};
+
+function matchPeriod(dateStr, p) {
+  if (!p || p === "all") return true;
+  const m = String(dateStr || "").slice(5, 7);
+  if (p === "q1") return ["01", "02", "03"].includes(m);
+  if (p === "q2") return ["04", "05", "06"].includes(m);
+  if (p === "q3") return ["07", "08", "09"].includes(m);
+  if (p === "q4") return ["10", "11", "12"].includes(m);
+  return m === p;
+}
+
 /* Zufluss-Prinzip: Rechnungen zählen im Jahr der Zahlung. */
-function journal(y) {
+function journal(y, p = "all") {
   const rows = [];
   for (const inv of S.invoices) {
-    if (inv.status !== "paid" || yOf(inv.paidDate) !== y) continue;
+    if (inv.status !== "paid" || yOf(inv.paidDate) !== y || !matchPeriod(inv.paidDate, p)) continue;
     const t = calcInv(inv);
     rows.push({ src: "inv", id: inv.id, kind: "in", date: inv.paidDate, party: invTitle(inv), desc: `Rechnung ${inv.number}`, ref: inv.number,
-      category: "rechnung", gross: t.gross, net: t.net, vat: t.vat, ku: !!inv.ku });
+      category: "rechnung", gross: t.gross, net: t.net, vat: t.vat, ku: !!inv.ku, byRate: t.byRate });
   }
   for (const e of S.entries) {
-    if (yOf(e.date) !== y) continue;
-    const p = entryParts(e);
+    if (yOf(e.date) !== y || !matchPeriod(e.date, p)) continue;
+    const parts = entryParts(e);
     rows.push({ src: "entry", id: e.id, kind: e.kind, date: e.date, party: e.party, desc: e.desc, ref: e.ref || "", category: e.category,
-      gross: p.gross, net: p.net, vat: p.vat, ku: !!e.ku, receiptId: e.receiptId, receiptName: e.receiptName });
+      gross: parts.gross, net: parts.net, vat: parts.vat, ku: !!e.ku, receiptId: e.receiptId, receiptName: e.receiptName, vatRate: e.vatRate });
   }
   return rows.sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -457,14 +517,25 @@ function calcAsset(a, targetYear) {
   }
   return { bookStart: 0, additions: 0, afa: 0, bookEnd: 0, isFuture: false, isDone: true };
 }
-function euer(y) {
-  const rows = journal(y);
+function euer(y, p = "all") {
+  const rows = journal(y, p);
   const sums = {}; let nonDeductible = 0;
+  let ust19Base = 0, ust7Base = 0;
   const add = (kz, v) => { if (v) sums[kz] = r2((sums[kz] || 0) + v); };
   for (const r of rows) {
     if (r.kind === "in") {
       if (r.vat === 0 && r.ku) add("111", r.gross);
-      else { add("112", r.net); add("140", r.vat); }
+      else {
+        add("112", r.net);
+        add("140", r.vat);
+        if (r.byRate) {
+          ust19Base = r2(ust19Base + (r.byRate["19"] || 0));
+          ust7Base = r2(ust7Base + (r.byRate["7"] || 0));
+        } else {
+          if (Number(r.vatRate) === 19) ust19Base = r2(ust19Base + r.net);
+          else if (Number(r.vatRate) === 7) ust7Base = r2(ust7Base + r.net);
+        }
+      }
     } else {
       let amt = r.net;
       add("185", r.vat);
@@ -473,13 +544,17 @@ function euer(y) {
     }
   }
   const assetCalcs = (S.fixedAssets || []).map(a => calcAsset(a, y));
-  const afaFromAssets = r2(assetCalcs.reduce((acc, c) => acc + (c?.afa || 0), 0));
+  const fullYearAfa = r2(assetCalcs.reduce((acc, c) => acc + (c?.afa || 0), 0));
+  let afaFromAssets = fullYearAfa;
+  if (p === "q1" || p === "q2" || p === "q3" || p === "q4") afaFromAssets = r2(fullYearAfa * 0.25);
+  else if (/^\d{2}$/.test(p)) afaFromAssets = r2(fullYearAfa / 12);
   if (afaFromAssets) add("130", afaFromAssets);
 
   const lines = list => list.filter(([kz]) => sums[kz]).map(([kz, label]) => ({ kz, label, amount: sums[kz] }));
   const inc = lines(INC_LINES), out = lines(OUT_LINES);
   const incTotal = r2(inc.reduce((a, l) => a + l.amount, 0)), outTotal = r2(out.reduce((a, l) => a + l.amount, 0));
-  return { rows, inc, out, ust: sums["140"] || 0, vorsteuer: sums["185"] || 0, nonDeductible, incTotal, outTotal, profit: r2(incTotal - outTotal), afaFromAssets };
+  const ust = sums["140"] || 0, vorsteuer = sums["185"] || 0;
+  return { rows, inc, out, ust, vorsteuer, ust19Base, ust7Base, ustZahllast: r2(ust - vorsteuer), nonDeductible, incTotal, outTotal, profit: r2(incTotal - outTotal), afaFromAssets, period: p };
 }
 /* Gesamtumsatz nach § 19 UStG: vereinnahmte Entgelte. */
 function kuTurnover(y) {
@@ -488,6 +563,7 @@ function kuTurnover(y) {
 function years() {
   const ys = new Set([new Date().getFullYear(), year]);
   S.invoices.forEach(i => { if (i.date) ys.add(yOf(i.date)); if (i.paidDate) ys.add(yOf(i.paidDate)); });
+  (S.quotes || []).forEach(q => q.date && ys.add(yOf(q.date)));
   S.entries.forEach(e => e.date && ys.add(yOf(e.date)));
   (S.fixedAssets || []).forEach(a => a.date && ys.add(yOf(a.date)));
   return [...ys].sort((a, b) => b - a);
@@ -540,8 +616,9 @@ function confirmBox(title, text, yesLabel, onYes, danger = true) {
 /* ---------- render shell ---------- */
 function renderNav() {
   const overdue = S.invoices.filter(i => invState(i) === "overdue").length;
+  const openQuotes = (S.quotes || []).filter(q => quoteState(q) === "open").length;
   $("#nav").innerHTML = VIEWS.map(([k, l]) => `<button data-act="nav" data-v="${k}" ${view === k ? 'aria-current="page"' : ""}>
-    <span>${l}</span>${k === "invoices" && overdue ? `<span class="count" title="überfällig">${overdue}</span>` : ""}</button>`).join("");
+    <span>${l}</span>${k === "invoices" && overdue ? `<span class="count" title="überfällig">${overdue}</span>` : ""}${k === "quotes" && openQuotes ? `<span class="count" title="offene Angebote">${openQuotes}</span>` : ""}</button>`).join("");
   const s = sett();
   $("#brand-sub").textContent = s.name || "Buchhaltung";
   const st = { pending: ["", "Verbinde …"], ok: ["ok", "Daten gespeichert"], none: ["err", "Kein Datenspeicher"], err: ["err", "Verbindung unterbrochen"] }[S.conn];
@@ -549,7 +626,7 @@ function renderNav() {
 }
 function render() {
   renderNav();
-  const fn = { overview: vOverview, invoices: vInvoices, entries: vEntries, customers: vCustomers, anlagen: vAnlagen, euer: vEuer, settings: vSettings }[view] || vOverview;
+  const fn = { overview: vOverview, quotes: vQuotes, invoices: vInvoices, entries: vEntries, customers: vCustomers, anlagen: vAnlagen, euer: vEuer, settings: vSettings }[view] || vOverview;
   let banner = "";
   if (S.conn === "none") banner = `<div class="banner">Der Datenspeicher ist hier nicht verfügbar. Öffne das Kontobuch angemeldet auf claude.ai, damit deine Buchungen gespeichert werden.</div>`;
   if (S.conn === "err") banner = `<div class="banner">Die Verbindung zum Datenspeicher wurde unterbrochen. Lade die Seite neu.</div>`;
@@ -560,12 +637,44 @@ const yearSel = () => `<label class="muted small" for="year-sel">Jahr</label>
 const loading = () => `<div class="empty"><p>Lade deine Daten …</p></div>`;
 
 /* ---------- views ---------- */
+function yearCloseReminder() {
+  const s = sett();
+  const cy = new Date().getFullYear();
+  const prevY = cy - 1;
+  const dismissed = s.dismissedReminders || {};
+  if (dismissed[prevY]) return "";
+  const hasPrevData = S.invoices.some(i => yOf(i.paidDate) === prevY || yOf(i.date) === prevY) ||
+                      (S.quotes || []).some(q => yOf(q.date) === prevY) ||
+                      S.entries.some(e => yOf(e.date) === prevY) ||
+                      (S.fixedAssets || []).some(a => yOf(a.date) <= prevY);
+  if (!hasPrevData) return "";
+
+  return `
+  <div class="sheet-card panel" style="background:var(--accent-soft);border-color:var(--accent);margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h2 style="display:flex;align-items:center;gap:8px;font-size:1.1rem;margin:0">
+          <span>📦</span> Jahresabschluss & Datensicherung ${prevY}
+        </h2>
+        <p class="small" style="margin-top:6px;max-width:65ch">
+          Das Geschäftsjahr ${prevY} ist abgeschlossen. Lade jetzt deinen GoBD-konformen Jahresabschluss (ZIP-Archiv mit EÜR-Bericht, Journal, Anlagenverzeichnis, allen Rechnungen und Original-Belegen nach § 147 AO) herunter.
+        </p>
+      </div>
+      <div class="toolbar" style="margin-top:4px">
+        <button class="btn primary sm" data-act="export-year-zip-explicit" data-year="${prevY}">Jahresabschluss ${prevY} (ZIP)</button>
+        <button class="btn ghost sm" data-act="dismiss-reminder" data-year="${prevY}">Erinnerung ausblenden</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function vOverview() {
   const s = sett();
   const e = euer(year);
   const open = S.invoices.filter(i => i.status === "open").sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
   const openSum = open.reduce((a, i) => a + calcInv(i).gross, 0);
   const overdue = open.filter(i => invState(i) === "overdue");
+  const openQuotes = (S.quotes || []).filter(q => quoteState(q) === "open").sort((a, b) => (a.validUntil || "").localeCompare(b.validUntil || ""));
   const steps = [
     [!!(s.name && s.street && s.taxNo), "Firmendaten und Steuernummer eintragen", "settings", "Einstellungen öffnen"],
     [S.customers.length > 0, "Ersten Kunden anlegen", "new-customer", "Kunde anlegen"],
@@ -581,13 +690,14 @@ function vOverview() {
   const recent = journal(year).slice(0, 6);
   return `
   <div class="head"><div class="head-l"><h3>Geschäftsjahr</h3><h1>Übersicht ${year}</h1></div>
-    <div class="toolbar">${yearSel()}<button class="btn" data-act="new-out">Ausgabe erfassen</button><button class="btn primary" data-act="new-invoice">Neue Rechnung</button></div></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="new-quote">Neues Angebot</button><button class="btn" data-act="new-out">Ausgabe erfassen</button><button class="btn primary" data-act="new-invoice">Neue Rechnung</button></div></div>
+  ${allReady() ? yearCloseReminder() : ""}
   ${onboarding}
   <div class="kpis">
     <div class="kpi"><h3>Einnahmen</h3><span class="v in">${eur(e.incTotal)}</span><span class="s">zugeflossen ${year}</span></div>
     <div class="kpi"><h3>Ausgaben</h3><span class="v out">${eur(e.outTotal)}</span><span class="s">abzugsfähig ${year}</span></div>
     <div class="kpi"><h3>Gewinn</h3><span class="v">${eur(e.profit)}</span><span class="s">vorläufig, nach EÜR</span></div>
-    <div class="kpi"><h3>Offen</h3><span class="v">${eur(openSum)}</span><span class="s">${open.length} Rechnung${open.length === 1 ? "" : "en"}${overdue.length ? `, <b style="color:var(--warn)">${overdue.length} überfällig</b>` : ""}</span></div>
+    <div class="kpi"><h3>Offen</h3><span class="v">${eur(openSum)}</span><span class="s">${open.length} Rechnung${open.length === 1 ? "" : "en"}${overdue.length ? `, <b style="color:var(--warn)">${overdue.length} überfällig</b>` : ""}${openQuotes.length ? ` · ${openQuotes.length} Angebot${openQuotes.length === 1 ? "" : "e"}` : ""}</span></div>
   </div>
   <div class="grid2">
     <section class="section">
@@ -597,6 +707,13 @@ function vOverview() {
         ${open.map(i => `<tr><td class="mono">${esc(i.number)}</td><td>${esc(invTitle(i))}</td><td>${fDate(i.dueDate)} ${invState(i) === "overdue" ? chip("overdue") : ""}</td>
           <td class="amt">${eur(calcInv(i).gross)}</td><td class="actions"><button class="btn sm" data-act="mark-paid" data-id="${i.id}">Bezahlt</button></td></tr>`).join("")}
         </tbody></table></div>` : `<div class="sheet-card empty"><p>Keine offenen Rechnungen. Alles bezahlt.</p></div>`}
+      ${openQuotes.length ? `
+      <div class="section-head" style="margin-top:12px"><h2>Offene Angebote</h2><button class="btn ghost sm" data-act="nav" data-v="quotes">Alle Angebote</button></div>
+      <div class="table-wrap sheet-card"><table>
+        <thead><tr><th>Nr.</th><th>Kunde</th><th>Gültig bis</th><th class="r">Betrag</th><th></th></tr></thead><tbody>
+        ${openQuotes.map(q => `<tr><td class="mono">${esc(q.number)}</td><td>${esc(quoteTitle(q))}</td><td>${fDate(q.validUntil)} ${quoteState(q) === "expired" ? chip("expired") : ""}</td>
+          <td class="amt">${eur(calcInv(q).gross)}</td><td class="actions"><button class="btn sm primary" data-act="quote-to-invoice" data-id="${q.id}">In Rechnung</button></td></tr>`).join("")}
+        </tbody></table></div>` : ""}
       <div class="section-head" style="margin-top:12px"><h2>Letzte Buchungen</h2><button class="btn ghost sm" data-act="nav" data-v="entries">Alle Buchungen</button></div>
       ${!allReady() ? loading() : recent.length ? `<div class="table-wrap sheet-card"><table><tbody>
         ${recent.map(r => `<tr><td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || CAT[r.category] || "")}</span></td>
@@ -606,12 +723,60 @@ function vOverview() {
     <aside class="section">${kuPanel()}</aside>
   </div>`;
 }
+
+function ustaPanel() {
+  const cy = new Date().getFullYear();
+  const cm = String(new Date().getMonth() + 1).padStart(2, "0");
+  const prevMNum = new Date().getMonth() === 0 ? 12 : new Date().getMonth();
+  const prevMY = new Date().getMonth() === 0 ? cy - 1 : cy;
+  const prevMStr = String(prevMNum).padStart(2, "0");
+
+  const curEuer = euer(cy, cm);
+  const prevEuer = euer(prevMY, prevMStr);
+
+  return `
+  <div class="sheet-card panel">
+    <div class="section-head">
+      <div>
+        <h2>UStVA & Monatsabschluss</h2>
+        <p class="small muted">Monatliche Übersicht für Regelbesteuerer</p>
+      </div>
+      <button class="btn ghost sm" data-act="nav" data-v="euer">Zur EÜR & UStVA</button>
+    </div>
+    <div class="meter" style="gap:10px">
+      <div style="border-bottom:1px solid var(--rule);padding-bottom:8px">
+        <div class="row">
+          <span><b>Vormonat (${prevMStr}/${prevMY})</b></span>
+          <span class="mono">${prevEuer.ustZahllast >= 0 ? "Zahllast: " + eur(prevEuer.ustZahllast) : "Erstattung: " + eur(Math.abs(prevEuer.ustZahllast))}</span>
+        </div>
+        <div class="small muted" style="display:flex;justify-content:space-between;margin-top:3px">
+          <span>USt 19%: ${eur(r2(prevEuer.ust19Base * 0.19))}</span>
+          <span>Vorsteuer: ${eur(prevEuer.vorsteuer)}</span>
+        </div>
+      </div>
+      <div>
+        <div class="row">
+          <span><b>Laufender Monat (${cm}/${cy})</b></span>
+          <span class="mono">${curEuer.ustZahllast >= 0 ? "Zahllast: " + eur(curEuer.ustZahllast) : "Erstattung: " + eur(Math.abs(curEuer.ustZahllast))}</span>
+        </div>
+        <div class="small muted" style="display:flex;justify-content:space-between;margin-top:3px">
+          <span>USt 19%: ${eur(r2(curEuer.ust19Base * 0.19))}</span>
+          <span>Vorsteuer: ${eur(curEuer.vorsteuer)}</span>
+        </div>
+      </div>
+    </div>
+    <p class="small muted">
+      Tipp: Gib deine UStVA jeweils bis zum 10. des Folgemonats bei ELSTER ab. Unter <a href="#euer" data-act="nav" data-v="euer">EÜR</a> kannst du jeden Monat oder jedes Quartal einzeln filtern.
+    </p>
+  </div>`;
+}
+
 function kuPanel() {
   const s = sett();
+  if (!s.kleinunternehmer) return ustaPanel();
   const cy = new Date().getFullYear();
   const cur = kuTurnover(cy), prev = kuTurnover(cy - 1);
   const bar = (v, max) => { const p = Math.min(100, v / max * 100); return `<div class="bar"><i class="${p >= 100 ? "crit" : p >= 80 ? "warn" : ""}" style="width:${p.toFixed(1)}%"></i></div>`; };
-  if (!s.kleinunternehmer) return `<div class="sheet-card panel"><h2>Umsatzsteuer</h2><p class="small muted">Du rechnest mit Umsatzsteuer ab. Die Summen für deine Umsatzsteuer-Voranmeldung findest du unter EÜR.</p></div>`;
   let msg = "";
   if (cur > KU_CUR) msg = `<p class="note warn">Du hast ${eur(KU_CUR)} in ${cy} überschritten. Ab dem Umsatz, der die Grenze überschreitet, gilt die Regelbesteuerung. Sprich bitte mit deiner Steuerberatung und stelle in den Einstellungen um.</p>`;
   else if (cur > KU_PREV) msg = `<p class="note warn">Du liegst in ${cy} über ${eur(KU_PREV)}. Damit bist du ab ${cy + 1} kein Kleinunternehmer mehr.</p>`;
@@ -623,6 +788,48 @@ function kuPanel() {
     ${msg}
     <p class="small muted">Gezählt werden bezahlte Rechnungen und Umsätze ohne Rechnung. Umsätze aus der Zeit vor dem Kontobuch kannst du als Einnahme nachtragen.</p>
   </div>`;
+}
+
+function quoteTitle(q) {
+  return q.recipient ? q.recipient.split("\n")[0] : (custName(q.customerId) || "Ohne Empfänger");
+}
+
+function vQuotes() {
+  const list = (S.quotes || []).filter(q => {
+    const st = quoteState(q);
+    if (F.quo !== "all" && F.quo !== st) return false;
+    return F.quo !== "all" || yOf(q.date) === year || q.status === "draft" || q.status === "open";
+  }).sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.number || "").localeCompare(a.number || ""));
+  const filt = [
+    ["all", `Alle ${year}`],
+    ["draft", "Entwürfe"],
+    ["open", "Offen"],
+    ["accepted", "Angenommen"],
+    ["billed", "Abgerechnet"],
+    ["rejected", "Abgelehnt"],
+    ["expired", "Abgelaufen"]
+  ];
+  return `
+  <div class="head"><div class="head-l"><h3>Kostenvoranschläge & Angebote</h3><h1>Angebote</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn primary" data-act="new-quote">Neues Angebot</button></div></div>
+  <div class="filters" role="group" aria-label="Filter">${filt.map(([k, l]) => `<button data-act="f-quo" data-v="${k}" aria-pressed="${F.quo === k}">${l}</button>`).join("")}</div>
+  ${!allReady() ? loading() : list.length ? `<div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Nr.</th><th>Datum</th><th>Empfänger</th><th>Gültig bis</th><th>Status</th><th class="r">Betrag</th><th></th></tr></thead><tbody>
+    ${list.map(q => {
+      const st = quoteState(q);
+      const t = calcInv(q);
+      return `<tr class="clickable" data-act="open-quote" data-id="${q.id}">
+        <td class="mono">${q.number ? esc(q.number) : '<span class="muted">—</span>'}${q.billedInvoiceNumber ? `<span class="sub">Rechnung ${esc(q.billedInvoiceNumber)}</span>` : ""}</td>
+        <td class="mono small">${fDate(q.date)}</td>
+        <td>${esc(quoteTitle(q))}</td>
+        <td class="small">${fDate(q.validUntil)}</td>
+        <td>${chip(st)}</td>
+        <td class="amt">${eur(t.gross)}</td>
+        <td class="actions">
+          ${st === "open" || st === "accepted" ? `<button class="btn sm" data-act="quote-to-invoice" data-id="${q.id}" data-stop title="Direkt als Rechnung abrechnen">In Rechnung</button>` : ""}
+        </td></tr>`;
+    }).join("")}
+    </tbody></table></div>` : `<div class="sheet-card empty"><h2>Noch keine Angebote</h2><p>Erstelle Angebote für deine Kunden. Sobald das Angebot angenommen wird, kannst du es mit 1 Klick direkt in eine Rechnung umwandeln.</p><button class="btn primary" data-act="new-quote">Erstes Angebot schreiben</button></div>`}`;
 }
 
 function vInvoices() {
@@ -648,9 +855,9 @@ function vInvoices() {
 
 function entriesRows() {
   const q = F.q.trim().toLowerCase();
-  const rows = journal(year).filter(r => (F.ent === "all" || F.ent === r.kind) &&
+  const rows = journal(year, period).filter(r => (F.ent === "all" || F.ent === r.kind) &&
     (!q || [r.party, r.desc, r.ref, CAT[r.category]].join(" ").toLowerCase().includes(q)));
-  if (!rows.length) return `<div class="sheet-card empty"><p>${q ? "Keine Buchung passt zur Suche." : `Keine Buchungen in ${year}. Erfasse eine Ausgabe oder Einnahme. Bezahlte Rechnungen erscheinen hier automatisch.`}</p></div>`;
+  if (!rows.length) return `<div class="sheet-card empty"><p>${q ? "Keine Buchung passt zur Suche." : `Keine Buchungen für ${periodLabel(period, year)}. Erfasse eine Ausgabe oder Einnahme. Bezahlte Rechnungen erscheinen hier automatisch.`}</p></div>`;
   const sIn = rows.filter(r => r.kind === "in").reduce((a, r) => a + r.gross, 0), sOut = rows.filter(r => r.kind === "out").reduce((a, r) => a + r.gross, 0);
   return `<div class="table-wrap sheet-card"><table>
     <thead><tr><th>Datum</th><th>Partner / Beschreibung</th><th>Kategorie</th><th>Beleg</th><th class="r">Einnahme</th><th class="r">Ausgabe</th></tr></thead><tbody>
@@ -665,7 +872,7 @@ function entriesRows() {
 function vEntries() {
   return `
   <div class="head"><div class="head-l"><h3>Journal</h3><h1>Einnahmen & Ausgaben</h1></div>
-    <div class="toolbar">${yearSel()}<button class="btn" data-act="new-in">Einnahme</button><button class="btn primary" data-act="new-out">Ausgabe erfassen</button></div></div>
+    <div class="toolbar">${yearSel()} ${periodSel()}<button class="btn" data-act="new-in">Einnahme</button><button class="btn primary" data-act="new-out">Ausgabe erfassen</button></div></div>
   <div class="section-head"><div class="filters" role="group" aria-label="Filter">
     ${[["all", "Alle"], ["in", "Einnahmen"], ["out", "Ausgaben"]].map(([k, l]) => `<button data-act="f-ent" data-v="${k}" aria-pressed="${F.ent === k}">${l}</button>`).join("")}</div>
     <input class="search" id="ent-search" type="search" placeholder="Suchen …" aria-label="Buchungen durchsuchen" value="${esc(F.q)}" data-input="search"></div>
@@ -727,32 +934,44 @@ function vAnlagen() {
 }
 
 function vEuer() {
-  const s = sett(); const e = euer(year);
+  const s = sett(); const e = euer(year, period);
   const rowsOf = list => list.map(l => `<tr><td class="mono">${l.kz}</td><td>${esc(l.label)}</td><td class="amt">${num(l.amount)}</td></tr>`).join("");
   return `
-  <div class="head"><div class="head-l"><h3>Einnahmenüberschussrechnung</h3><h1>EÜR ${year}</h1></div>
-    <div class="toolbar">${yearSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button><button class="btn primary" data-act="export-year-zip" ${downloads ? "" : "disabled"}>Jahresabschluss ${year} (ZIP)</button></div></div>
-  <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Jahr, in dem das Geld eingeht, Ausgaben im Jahr der Zahlung. Die Kennzahl (Kz.) findest du in ELSTER neben dem passenden Feld der Anlage EÜR. Felder ohne Betrag sind weggelassen, die bleiben in ELSTER leer.</p>
+  <div class="head"><div class="head-l"><h3>Einnahmenüberschussrechnung</h3><h1>EÜR ${periodLabel(period, year)}</h1></div>
+    <div class="toolbar">${yearSel()} ${periodSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button><button class="btn primary" data-act="export-year-zip" ${downloads ? "" : "disabled"}>Jahresabschluss ${year} (ZIP)</button></div></div>
+  <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Zeitraum des Zahlungseingangs, Ausgaben im Zahlungszeitraum. Die Kennzahl (Kz.) entspricht der Anlage EÜR in ELSTER.</p>
   ${!allReady() ? loading() : `<div class="grid2">
   <div class="table-wrap sheet-card"><table>
     <thead><tr><th>Kz.</th><th>Betriebseinnahmen</th><th class="r">EUR</th></tr></thead><tbody>
     ${rowsOf(e.inc)}
-    ${e.incTotal ? "" : `<tr><td></td><td class="muted">Keine Einnahmen in ${year}</td><td></td></tr>`}
+    ${e.incTotal ? "" : `<tr><td></td><td class="muted">Keine Einnahmen im Zeitraum</td><td></td></tr>`}
     <tr class="total"><td class="mono">159</td><td>Summe Betriebseinnahmen</td><td class="amt in">${num(e.incTotal)}</td></tr>
     </tbody>
     <thead><tr><th style="padding-top:24px">Kz.</th><th style="padding-top:24px">Betriebsausgaben</th><th class="r" style="padding-top:24px">EUR</th></tr></thead><tbody>
     ${rowsOf(e.out)}
-    ${e.outTotal ? "" : `<tr><td></td><td class="muted">Keine Ausgaben in ${year}</td><td></td></tr>`}
+    ${e.outTotal ? "" : `<tr><td></td><td class="muted">Keine Ausgaben im Zeitraum</td><td></td></tr>`}
     <tr class="total"><td class="mono">199</td><td>Summe Betriebsausgaben</td><td class="amt out">${num(e.outTotal)}</td></tr>
     </tbody><tbody>
     <tr class="grand"><td></td><td>${e.profit >= 0 ? "Gewinn" : "Verlust"}</td><td class="amt">${num(e.profit)}</td></tr>
     </tbody></table></div>
   <aside class="section">
     ${e.nonDeductible ? `<p class="note">Nicht abziehbare Bewirtungskosten (30 %, Kz. 165): <span class="mono">${eur(e.nonDeductible)}</span>. Trag sie in ELSTER zusätzlich ein. In den Summen oben sind sie nicht enthalten.</p>` : ""}
-    ${s.kleinunternehmer ? `<p class="note">Als Kleinunternehmer ziehst du keine Vorsteuer ab. Ausgaben stehen deshalb mit dem Bruttobetrag in der EÜR.</p>` : `<div class="sheet-card panel"><h2>Umsatzsteuer ${year}</h2>
-      <div class="totals" style="width:100%"><div><span>Vereinnahmte USt</span><span class="mono">${num(e.ust)}</span></div><div><span>− Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
-      <div class="g"><span>${e.ust - e.vorsteuer >= 0 ? "Zahllast" : "Erstattung"}</span><span class="mono">${num(Math.abs(e.ust - e.vorsteuer))}</span></div></div></div>`}
-    <p class="note">Abschreibungen (Kz. 130) werden automatisch aus deinem <a href="#anlagen" data-act="nav" data-v="anlagen">Anlagenverzeichnis</a> berechnet (${eur(e.afaFromAssets || 0)} in ${year}). Nicht enthalten sind Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
+    ${s.kleinunternehmer ? `<p class="note">Als Kleinunternehmer ziehst du keine Vorsteuer ab. Ausgaben stehen deshalb mit dem Bruttobetrag in der EÜR.</p>` : `
+    <div class="sheet-card panel">
+      <h2>Umsatzsteuer-Voranmeldung (UStVA)</h2>
+      <p class="small muted">Werte für ${periodLabel(period, year)} zur Übernahme in ELSTER</p>
+      <div class="totals" style="width:100%">
+        <div><span>Kz. 81 Steuerpfl. Umsatz 19 % (Netto)</span><span class="mono">${eur(e.ust19Base)}</span></div>
+        <div><span>Steuer 19 %</span><span class="mono">${eur(r2(e.ust19Base * 0.19))}</span></div>
+        ${e.ust7Base ? `<div><span>Kz. 86 Steuerpfl. Umsatz 7 % (Netto)</span><span class="mono">${eur(e.ust7Base)}</span></div>
+        <div><span>Steuer 7 %</span><span class="mono">${eur(r2(e.ust7Base * 0.07))}</span></div>` : ""}
+        <div><span>Vereinnahmte USt gesamt</span><span class="mono">${num(e.ust)}</span></div>
+        <div><span>− Kz. 66 Abziehbare Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
+        <div class="g"><span>Kz. 83 ${e.ust - e.vorsteuer >= 0 ? "Verbleibende Zahllast" : "Überschuss / Erstattung"}</span><span class="mono">${eur(Math.abs(e.ustZahllast))}</span></div>
+      </div>
+      <p class="small muted">Trage die Kennzahlen Kz. 81, 86, 66 direkt in dein ELSTER UStVA-Formular ein.</p>
+    </div>`}
+    <p class="note">Abschreibungen (Kz. 130) werden automatisch aus deinem <a href="#anlagen" data-act="nav" data-v="anlagen">Anlagenverzeichnis</a> berechnet (${eur(e.afaFromAssets || 0)} im gewählten Zeitraum). Nicht enthalten sind Homeoffice-Pauschale und private Kfz-Nutzung.</p>
   </aside></div>`}`;
 }
 
@@ -781,6 +1000,12 @@ function vSettings() {
       <div class="f full"><label for="s-intro">Einleitungstext</label><textarea id="s-intro" name="intro">${esc(s.intro)}</textarea></div>
       <div class="f full"><label for="s-closing">Schlusstext</label><textarea id="s-closing" name="closing">${esc(s.closing)}</textarea></div>
     </div></fieldset>
+    <fieldset><legend>Angebote</legend><div class="fields">
+      ${fld("quotePrefix", "Präfix der Angebotsnummer", "s2")}${fld("nextQuoteNo", "Nächste laufende Nummer", "s2", 'type="number" min="1" step="1"')}${fld("quoteValidityDays", "Gültigkeit (Tage)", "s2", 'type="number" min="1" step="1"')}
+      <div class="f full"><span class="hint">Das nächste Angebot bekommt die Nummer <b class="mono">${esc(nextQuote().number)}</b>.</span></div>
+      <div class="f full"><label for="s-quote-intro">Einleitungstext</label><textarea id="s-quote-intro" name="quoteIntro">${esc(s.quoteIntro)}</textarea></div>
+      <div class="f full"><label for="s-quote-closing">Schlusstext</label><textarea id="s-quote-closing" name="quoteClosing">${esc(s.quoteClosing)}</textarea></div>
+    </div></fieldset>
     <div class="form-foot"><span class="muted small">Änderungen werden sofort gespeichert.</span><button class="btn primary" type="submit">Speichern</button></div>
   </form>
   <section class="sheet-card panel">
@@ -796,6 +1021,13 @@ function nextInvoice(y = new Date().getFullYear()) {
   const s = sett(); const raw = s.invoicePrefix || ""; const prefix = raw.replaceAll("{JAHR}", y);
   const base = !raw.includes("{JAHR}") || Number(s.counterYear) === y ? Number(s.nextInvoiceNo || 1) : 1;
   const used = S.invoices.filter(i => i.number?.startsWith(prefix)).map(i => (parseInt(i.number.slice(prefix.length), 10) || 0) + 1);
+  const n = Math.max(base, ...used);
+  return { n, y, number: prefix + String(n).padStart(Number(s.numberPad || 3), "0") };
+}
+function nextQuote(y = new Date().getFullYear()) {
+  const s = sett(); const raw = s.quotePrefix || "ANG-{JAHR}-"; const prefix = raw.replaceAll("{JAHR}", y);
+  const base = !raw.includes("{JAHR}") || Number(s.quoteCounterYear) === y ? Number(s.nextQuoteNo || 1) : 1;
+  const used = (S.quotes || []).filter(q => q.number?.startsWith(prefix)).map(q => (parseInt(q.number.slice(prefix.length), 10) || 0) + 1);
   const n = Math.max(base, ...used);
   return { n, y, number: prefix + String(n).padStart(Number(s.numberPad || 3), "0") };
 }
@@ -1170,6 +1402,7 @@ function invoiceDoc(extra) {
   return { status: ed.status, number: ed.number || null, customerId: ed.customerId || null, recipient: ed.recipient, date: ed.date, serviceDate: ed.serviceDate,
     dueDays: ed.dueDays, dueDate: addDays(ed.date, ed.dueDays), intro: ed.intro, notes: ed.notes, items: ed.items, ku: ed.ku,
     customerNo: S.customers.find(c => c.id === ed.customerId)?.customerNo || null,
+    refQuoteId: ed.refQuoteId || null, refQuoteNumber: ed.refQuoteNumber || null,
     net: t.net, vat: t.vat, gross: t.gross, createdAt: ed.createdAt || new Date().toISOString(), ...extra };
 }
 async function saveDraft() {
@@ -1189,8 +1422,19 @@ async function finalizeInvoice() {
   if (!await saveSettings({ nextInvoiceNo: n + 1, counterYear: y })) { if (btn) btn.disabled = false; return; }
   const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""])); seller.closing = s.closing;
   const id = ed.id || uid();
+  const refQId = ed.refQuoteId;
+  const refQNo = ed.refQuoteNumber;
   if (await saveDoc("invoices", id, invoiceDoc({ status: "open", number, seller, finalizedAt: new Date().toISOString() }))) {
-    closeModal(); toast(`Rechnung ${number} festgeschrieben`); openInvoice(id);
+    if (refQId) {
+      const q = (S.quotes || []).find(x => x.id === refQId);
+      if (q) {
+        const { id: _, ...rest } = q;
+        await saveDoc("quotes", refQId, { ...rest, status: "billed", billedInvoiceId: id, billedInvoiceNumber: number, billedAt: new Date().toISOString() });
+      }
+    }
+    closeModal();
+    toast(`Rechnung ${number} festgeschrieben${refQNo ? ` (Angebot ${refQNo} abgerechnet)` : ""}`);
+    openInvoice(id);
   }
 }
 function openInvoice(id) {
@@ -1830,10 +2074,347 @@ async function cancelInvoice(id) {
   });
 }
 
+/* ---------- quotes ---------- */
+function newQuote(src) {
+  const s = sett();
+  const d = today();
+  const vDays = Number(s.quoteValidityDays || 30);
+  edQuote = {
+    id: null,
+    status: "draft",
+    customerId: "",
+    recipient: "",
+    date: d,
+    validDays: vDays,
+    validUntil: addDays(d, vDays),
+    intro: s.quoteIntro || "Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:",
+    notes: "",
+    closing: s.quoteClosing || "Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.",
+    ku: !!s.kleinunternehmer,
+    items: [{ desc: "", qty: 1, unit: "Std.", price: "", vat: 19 }]
+  };
+  if (src) {
+    Object.assign(edQuote, {
+      customerId: src.customerId,
+      recipient: src.recipient,
+      intro: src.intro,
+      notes: src.notes,
+      closing: src.closing,
+      items: src.items.map(x => ({ ...x }))
+    });
+  }
+  quoteEditor();
+}
+
+function quoteEditor() {
+  const custOpts = [...S.customers].sort((a, b) => (a.name || "").localeCompare(b.name || "", "de"));
+  openModal(edQuote.id ? "Angebot bearbeiten" : "Neues Angebot", `<form class="form" data-form="quote" autocomplete="off"><div class="fields">
+    <div class="f"><label for="q-cust">Kunde</label><select id="q-cust" name="customerId" data-change="quote-cust"><option value="">— ohne Kundenstamm —</option>
+      ${custOpts.map(c => `<option value="${c.id}" ${edQuote.customerId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      <span class="hint">Oder Empfänger direkt eintippen.</span></div>
+    <div class="f"><label for="q-rec">Empfänger (Anschrift)</label><textarea id="q-rec" name="recipient" rows="4" required>${esc(edQuote.recipient)}</textarea></div>
+    <div class="f s2"><label for="q-date">Angebotsdatum</label><input id="q-date" type="date" name="date" value="${esc(edQuote.date)}" required></div>
+    <div class="f s2"><label for="q-due">Gültig (Tage)</label><input id="q-due" type="number" min="1" name="validDays" value="${esc(edQuote.validDays || 30)}"></div>
+    <div class="f full"><label for="q-intro">Einleitung</label><textarea id="q-intro" name="intro" rows="2">${esc(edQuote.intro)}</textarea></div>
+  </div>
+  <div class="items" id="quote-items"></div>
+  <div><button type="button" class="btn sm" data-act="quote-item-add">+ Position</button></div>
+  <div class="totals" id="quote-totals"></div>
+  <div class="f full"><label for="q-notes">Anmerkung auf dem Angebot (optional)</label><textarea id="q-notes" name="notes" rows="2">${esc(edQuote.notes)}</textarea></div>
+  <div class="f full"><label for="q-closing">Schlusstext</label><textarea id="q-closing" name="closing" rows="2">${esc(edQuote.closing)}</textarea></div>
+  ${edQuote.ku ? `<p class="note">Kleinunternehmer: Das Angebot enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
+  <div class="form-foot"><div class="grp">${edQuote.id ? `<button type="button" class="btn danger" data-act="del-quote" data-id="${edQuote.id}">Entwurf löschen</button>` : ""}</div>
+    <div class="grp"><button type="button" class="btn" data-act="quote-save-draft">Als Entwurf speichern</button>
+    <button class="btn primary" type="submit">Festschreiben als ${esc(nextQuote(yOf(edQuote.date)).number)}</button></div></div></form>`, { wide: true });
+  renderQuoteItems();
+}
+
+function renderQuoteItems() {
+  const el = $("#quote-items"); if (!el) return;
+  const cls = edQuote.ku ? "item-row ku" : "item-row";
+  el.innerHTML = `<div class="${cls} item-head"><span>Beschreibung</span><span>Menge</span><span>Einheit</span><span>Einzelpreis</span>${edQuote.ku ? "" : "<span>USt</span>"}<span>Gesamt</span><span></span></div>` +
+    edQuote.items.map((it, i) => `<div class="${cls}" data-qi="${i}">
+      <input id="qit-${i}-desc" aria-label="Beschreibung" data-qf="desc" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
+      <input id="qit-${i}-qty" aria-label="Menge" data-qf="qty" inputmode="decimal" value="${esc(numIn(it.qty))}">
+      <input id="qit-${i}-unit" aria-label="Einheit" data-qf="unit" value="${esc(it.unit)}" placeholder="Stk.">
+      <input id="qit-${i}-price" aria-label="Einzelpreis in Euro" data-qf="price" inputmode="decimal" value="${esc(numIn(it.price))}" placeholder="0,00">
+      ${edQuote.ku ? "" : `<select id="qit-${i}-vat" aria-label="Umsatzsteuersatz" data-qf="vat">${[19, 7, 0].map(r => `<option value="${r}" ${Number(it.vat) === r ? "selected" : ""}>${r} %</option>`).join("")}</select>`}
+      <output data-qline>${num(r2(parseNum(it.qty) * parseNum(it.price)))}</output>
+      <button type="button" class="icon-btn" data-act="quote-item-del" data-qi="${i}" aria-label="Position entfernen" ${edQuote.items.length < 2 ? "disabled" : ""}>×</button></div>`).join("");
+  renderQuoteTotals();
+}
+
+function renderQuoteTotals() {
+  const t = calcInv(edQuote); const el = $("#quote-totals"); if (!el) return;
+  el.innerHTML = edQuote.ku ? `<div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div>`
+    : `<div><span>Netto</span><span class="mono">${eur(t.net)}</span></div>${Object.entries(t.byRate).filter(([r]) => Number(r)).map(([r, b]) => `<div><span>USt ${r} %</span><span class="mono">${eur(r2(b * r / 100))}</span></div>`).join("")}
+       <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div>`;
+}
+
+function syncQuoteItems() {
+  document.querySelectorAll("#quote-items .item-row[data-qi]").forEach(row => {
+    const it = edQuote.items[Number(row.dataset.qi)]; if (!it) return;
+    row.querySelectorAll("[data-qf]").forEach(inp => it[inp.dataset.qf] = inp.value);
+  });
+}
+
+function readQuoteForm() {
+  const f = $('form[data-form="quote"]'); const fd = new FormData(f);
+  const vDays = Number(fd.get("validDays") || 30);
+  const qDate = fd.get("date");
+  Object.assign(edQuote, {
+    customerId: fd.get("customerId"),
+    recipient: fd.get("recipient").trim(),
+    date: qDate,
+    validDays: vDays,
+    validUntil: addDays(qDate, vDays),
+    intro: fd.get("intro").trim(),
+    notes: fd.get("notes").trim(),
+    closing: fd.get("closing").trim()
+  });
+  edQuote.items = edQuote.items.map(it => ({
+    desc: String(it.desc).trim(),
+    qty: parseNum(it.qty),
+    unit: String(it.unit || "").trim(),
+    price: r2(parseNum(it.price)),
+    vat: edQuote.ku ? 0 : Number(it.vat || 0)
+  })).filter(it => it.desc || it.price);
+  if (!edQuote.items.length) edQuote.items = [{ desc: "", qty: 1, unit: "", price: 0, vat: 19 }];
+}
+
+function quoteDoc(extra) {
+  const t = calcInv(edQuote);
+  return {
+    status: edQuote.status,
+    number: edQuote.number || null,
+    customerId: edQuote.customerId || null,
+    recipient: edQuote.recipient,
+    date: edQuote.date,
+    validDays: edQuote.validDays,
+    validUntil: edQuote.validUntil,
+    intro: edQuote.intro,
+    notes: edQuote.notes,
+    closing: edQuote.closing,
+    items: edQuote.items,
+    ku: edQuote.ku,
+    customerNo: S.customers.find(c => c.id === edQuote.customerId)?.customerNo || null,
+    net: t.net,
+    vat: t.vat,
+    gross: t.gross,
+    createdAt: edQuote.createdAt || new Date().toISOString(),
+    ...extra
+  };
+}
+
+async function saveQuoteDraft() {
+  readQuoteForm(); const id = edQuote.id || uid();
+  if (await saveDoc("quotes", id, quoteDoc({ status: "draft" }))) { closeModal(); toast("Angebots-Entwurf gespeichert"); }
+}
+
+async function finalizeQuote() {
+  readQuoteForm();
+  if (!edQuote.recipient) { toast("Bitte gib einen Empfänger an.", true); return; }
+  if (!edQuote.items.some(it => it.desc && it.price)) { toast("Mindestens eine Position braucht Beschreibung und Preis.", true); return; }
+  if (edQuote.items.some(it => !it.desc)) { toast("Jede Position braucht eine Beschreibung.", true); return; }
+  const s = sett();
+  if (!s.name || !s.street) { toast("Trag zuerst Name und Anschrift in den Einstellungen ein.", true); return; }
+  const { n, y, number } = nextQuote(yOf(edQuote.date));
+  if ((S.quotes || []).some(q => q.number === number)) { toast(`Die Angebotsnummer ${number} gibt es schon.`, true); return; }
+  const btn = $('form[data-form="quote"] button[type=submit]'); if (btn) btn.disabled = true;
+  if (!await saveSettings({ nextQuoteNo: n + 1, quoteCounterYear: y })) { if (btn) btn.disabled = false; return; }
+  const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""])); seller.closing = s.quoteClosing || s.closing;
+  const id = edQuote.id || uid();
+  if (await saveDoc("quotes", id, quoteDoc({ status: "open", number, seller, finalizedAt: new Date().toISOString() }))) {
+    closeModal(); toast(`Angebot ${number} festgeschrieben`); openQuote(id);
+  }
+}
+
+function openQuote(id) {
+  const q = (S.quotes || []).find(x => x.id === id); if (!q) return;
+  if (q.status === "draft") { edQuote = { ...q, items: q.items.map(x => ({ ...x })) }; quoteEditor(); return; }
+  const st = quoteState(q);
+  openModal(`Angebot ${q.number}`, `
+    <div class="toolbar">${chip(st)}
+      ${q.validUntil ? `<span class="small muted">gültig bis ${fDate(q.validUntil)}</span>` : ""}
+      ${q.billedInvoiceNumber ? `<span class="small muted">abgerechnet in Rechnung <b>${esc(q.billedInvoiceNumber)}</b></span>` : ""}
+    </div>
+    <div class="toolbar">
+      <button class="btn primary" data-act="quote-pdf" data-id="${q.id}" ${downloads && window.jspdf ? "" : "disabled"}>Angebot als PDF</button>
+      <button class="btn" data-act="quote-pdf-open" data-id="${q.id}" ${window.jspdf ? "" : "disabled"} title="PDF in neuem Tab öffnen">Im Browser öffnen ↗</button>
+      ${st === "open" ? `<button class="btn" data-act="quote-accept" data-id="${q.id}">Als angenommen markieren</button>` : ""}
+      ${st === "open" ? `<button class="btn danger" data-act="quote-reject" data-id="${q.id}">Als abgelehnt markieren</button>` : ""}
+      ${st === "open" || st === "accepted" ? `<button class="btn primary" data-act="quote-to-invoice" data-id="${q.id}">⚡ In Rechnung umwandeln</button>` : ""}
+      ${q.billedInvoiceId ? `<button class="btn" data-act="open-invoice" data-id="${q.billedInvoiceId}">Rechnung ${esc(q.billedInvoiceNumber || "")} öffnen</button>` : ""}
+      <button class="btn" data-act="dup-quote" data-id="${q.id}">Als Vorlage kopieren</button>
+    </div>
+    ${downloads ? "" : `<p class="small muted">PDF-Downloads sind in dieser Ansicht nicht verfügbar.</p>`}
+    <div class="table-wrap">${paperQuoteHtml(q)}</div>`, { wide: true });
+}
+
+function paperQuoteHtml(q) {
+  const s = q.seller || sett(); const t = calcInv(q);
+  const senderLine = [s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+  return `<div class="paper">
+    <div class="ph"><div><b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div></div>
+      <div class="addr small" style="text-align:right">${esc([s.email, s.phone, s.web].filter(Boolean).join("\n"))}</div></div>
+    <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(q.recipient)}</div></div>
+      <div class="meta"><span>Angebotsnr.</span><span class="mono">${esc(q.number)}</span>${q.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(q.customerNo)}</span>` : ""}<span>Angebotsdatum</span><span>${fDate(q.date)}</span>
+      <span>Gültig bis</span><span>${fDate(q.validUntil)}</span></div></div>
+    <div><h2>Angebot</h2>${q.intro ? `<p>${esc(q.intro)}</p>` : ""}</div>
+    <table><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th>${q.ku ? "" : '<th class="r">USt</th>'}<th class="r">Gesamt</th></tr></thead><tbody>
+      ${q.items.map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.desc)}</td><td class="amt">${String(it.qty).replace(".", ",")} ${esc(it.unit)}</td><td class="amt">${eur(it.price)}</td>${q.ku ? "" : `<td class="amt">${it.vat} %</td>`}<td class="amt">${eur(r2(it.qty * it.price))}</td></tr>`).join("")}
+    </tbody></table>
+    <div class="totals">${q.ku ? "" : `<div><span>Netto</span><span class="mono">${eur(t.net)}</span></div>${Object.entries(t.byRate).filter(([r]) => Number(r)).map(([r, b]) => `<div><span>USt ${r} %</span><span class="mono">${eur(r2(b * r / 100))}</span></div>`).join("")}`}
+      <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div></div>
+    <div>${q.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
+      ${q.validUntil ? `<p>Dieses Angebot ist freibleibend gültig bis zum ${fDate(q.validUntil)}.</p>` : ""}
+      ${q.notes ? `<p style="margin-top:8px">${esc(q.notes)}</p>` : ""}
+      ${q.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(q.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
+    <div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
+      ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>
+  </div>`;
+}
+
+function quotePdf(q, outputType = "blob") {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const s = q.seller || sett(); const t = calcInv(q);
+
+  const L = 25, R = 190; let y;
+  const gray = () => doc.setTextColor(110); const black = () => doc.setTextColor(20);
+  const footer = () => {
+    doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
+    const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
+    const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
+    doc.text(parts.join("  ·  "), L, 283);
+    if (bank.length) doc.text(bank.join("  ·  "), L, 287);
+    black();
+  };
+  // Kopf
+  doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
+  doc.text([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean), R, 16, { align: "right" });
+  // Anschriftfeld nach DIN 5008
+  doc.setFontSize(7); doc.text([s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · "), L, 50);
+  doc.setDrawColor(170); doc.line(L, 51.2, L + 85, 51.2);
+  black(); doc.setFontSize(10); doc.text(doc.splitTextToSize(q.recipient || "", 85).slice(0, 6), L, 57);
+  // Infoblock
+  const meta = [["Angebotsnr.", q.number], ...(q.customerNo ? [["Kundennr.", q.customerNo]] : []), ["Angebotsdatum", fDate(q.date)], ["Gültig bis", fDate(q.validUntil)]];
+  y = 57; doc.setFontSize(9);
+  meta.forEach(([k, v]) => { gray(); doc.text(k, 125, y); black(); doc.text(String(v || ""), R, y, { align: "right" }); y += 5; });
+  // Titel
+  y = 100; doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text("Angebot", L, y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); y += 8;
+  const intro = q.intro;
+  if (intro) { const lines = doc.splitTextToSize(intro, R - L); doc.text(lines, L, y); y += lines.length * 4.6 + 4; }
+  // Tabelle
+  const cols = q.ku ? { pos: L, desc: L + 10, qty: 132, price: 160, total: R } : { pos: L, desc: L + 10, qty: 122, price: 148, vat: 162, total: R };
+  const descW = (q.ku ? 76 : 66);
+  const head = () => {
+    doc.setFontSize(8); gray();
+    doc.text("Pos.", cols.pos, y); doc.text("Beschreibung", cols.desc, y); doc.text("Menge", cols.qty, y, { align: "right" });
+    doc.text("Einzelpreis", cols.price, y, { align: "right" }); if (!q.ku) doc.text("USt", cols.vat, y, { align: "right" }); doc.text("Gesamt", cols.total, y, { align: "right" });
+    doc.setDrawColor(120); doc.line(L, y + 2, R, y + 2); y += 7; black(); doc.setFontSize(9.5);
+  };
+  head();
+  q.items.forEach((it, i) => {
+    const lines = doc.splitTextToSize(it.desc || "", descW);
+    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); y = 25; head(); }
+    doc.text(String(i + 1), cols.pos, y); doc.text(lines, cols.desc, y);
+    doc.text(`${String(it.qty).replace(".", ",")} ${it.unit || ""}`.trim(), cols.qty, y, { align: "right" });
+    doc.text(eur(it.price), cols.price, y, { align: "right" }); if (!q.ku) doc.text(`${it.vat} %`, cols.vat, y, { align: "right" });
+    doc.text(eur(r2(it.qty * it.price)), cols.total, y, { align: "right" });
+    y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
+  });
+  // Summen
+  if (y > 235) { footer(); doc.addPage(); y = 25; }
+  y += 2; const lx = 125;
+  if (!q.ku) {
+    doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
+    Object.entries(t.byRate).filter(([r]) => Number(r)).forEach(([r, b]) => { doc.text(`USt ${r} %`, lx, y); doc.text(eur(r2(b * r / 100)), R, y, { align: "right" }); y += 5; });
+  }
+  doc.setDrawColor(20); doc.line(lx, y - 3.5, R, y - 3.5);
+  doc.setFont("helvetica", "bold"); doc.text("Gesamtbetrag", lx, y + 1); doc.text(eur(t.gross), R, y + 1, { align: "right" });
+  doc.line(lx, y + 3, R, y + 3); doc.line(lx, y + 3.8, R, y + 3.8);
+  doc.setFont("helvetica", "normal"); y += 14;
+  const tail = [];
+  if (q.ku) tail.push("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.");
+  if (q.validUntil) tail.push(`Dieses Angebot ist freibleibend gültig bis zum ${fDate(q.validUntil)}.`);
+  if (q.notes) tail.push(q.notes);
+  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
+  const closing = q.closing || s.quoteClosing || s.closing;
+  if (closing) { y += 4; const lines = doc.splitTextToSize(`${closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); }
+  footer();
+  return doc.output(outputType);
+}
+
+async function saveQuotePdf(q) {
+  if (!downloads || !window.jspdf) { toast("PDF-Download ist hier nicht verfügbar.", true); return; }
+  try {
+    const blob = quotePdf(q);
+    const name = `Angebot_${q.number}.pdf`.replace(/[\/\\:*?"<>|]/g, "-");
+    await downloads.save({ filename: name, data: blob }); toast("Angebot als PDF gespeichert");
+  } catch (e) { if (e?.code !== "declined") { console.error(e); toast("Das PDF konnte nicht gespeichert werden.", true); } }
+}
+
+function openQuotePdfInTab(q) {
+  if (!q) return;
+  if (!window.jspdf) { toast("PDF-Vorschau nicht verfügbar.", true); return; }
+  try {
+    const blob = quotePdf(q);
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  } catch (err) {
+    console.error(err);
+    toast("PDF konnte nicht geöffnet werden.", true);
+  }
+}
+
+function convertQuoteToInvoice(id) {
+  const q = (S.quotes || []).find(x => x.id === id); if (!q) return;
+  closeModal();
+  const s = sett();
+  ed = {
+    id: null,
+    status: "draft",
+    customerId: q.customerId || "",
+    recipient: q.recipient || "",
+    date: today(),
+    serviceDate: "",
+    dueDays: s.paymentDays,
+    intro: `Rechnung zu Angebot ${q.number} vom ${fDate(q.date)}.\n${s.intro}`,
+    notes: q.notes || "",
+    ku: q.ku != null ? q.ku : !!s.kleinunternehmer,
+    refQuoteId: q.id,
+    refQuoteNumber: q.number,
+    items: q.items.map(x => ({ ...x }))
+  };
+  invoiceEditor();
+  toast(`Angebot ${q.number} in Rechnungsentwurf übernommen`);
+}
+
+async function acceptQuote(id) {
+  const q = (S.quotes || []).find(x => x.id === id); if (!q) return;
+  const { id: _, ...rest } = q;
+  if (await saveDoc("quotes", id, { ...rest, status: "accepted" })) {
+    toast(`Angebot ${q.number} als angenommen markiert`);
+    openQuote(id);
+  }
+}
+
+async function rejectQuote(id) {
+  const q = (S.quotes || []).find(x => x.id === id); if (!q) return;
+  const { id: _, ...rest } = q;
+  if (await saveDoc("quotes", id, { ...rest, status: "rejected" })) {
+    toast(`Angebot ${q.number} als abgelehnt markiert`);
+    openQuote(id);
+  }
+}
+
 /* ---------- export / import ---------- */
 async function exportJson() {
   if (!downloads) return;
-  const data = { app: "Kontobuch", version: 1, exportedAt: new Date().toISOString(), settings: S.settings, customers: S.customers, invoices: S.invoices, entries: S.entries, fixedAssets: S.fixedAssets };
+  const data = { app: "Kontobuch", version: 1, exportedAt: new Date().toISOString(), settings: S.settings, customers: S.customers, quotes: S.quotes, invoices: S.invoices, entries: S.entries, fixedAssets: S.fixedAssets };
   try { await downloads.save({ filename: `Kontobuch-Backup-${today()}.json`, data: JSON.stringify(data, null, 2) }); toast("Backup gespeichert"); }
   catch (e) { if (e?.code !== "declined") toast("Das Backup konnte nicht gespeichert werden.", true); }
 }
@@ -1973,6 +2554,7 @@ function generateReadmeReport(y, stats = {}) {
     "ARCHIVIERTE BESTÄNDE & STATISTIK",
     "--------------------------------------------------------------------------------",
     `- Ausgangsrechnungen:   ${stats.invoicesCount || 0} Dokument(e)`,
+    `- Angebote:             ${stats.quotesCount || 0} Dokument(e)`,
     `- Buchungen (Journal):  ${stats.entriesCount || 0} Buchung(en)`,
     `- Belege gesichert:     ${stats.receiptsSaved || 0} von ${stats.receiptsTotal || 0} erfassten Belegen`,
     "",
@@ -1996,12 +2578,12 @@ function generateReadmeReport(y, stats = {}) {
     "",
     `5. Datenbestand-${y}.json`,
     "   Vollständiger maschinenlesbarer Snapshot aller Stammdaten, Kunden,",
-    "   Rechnungen und Buchungen des Geschäftsjahres.",
+    "   Angebote, Rechnungen und Buchungen des Geschäftsjahres.",
     "",
-    "6. Ausgangsrechnungen/",
+    "6. Ausgangsrechnungen/ & Angebote/",
     `   Alle in ${y} gestellten bzw. zugeflossenen Rechnungen als PDF-Dokumente`,
     "   inklusive eingebetteter maschinenlesbarer ZUGFeRD 2.2 / Factur-X XML-Daten",
-    "   (Profil EN 16931).",
+    "   (Profil EN 16931) sowie erstellte Angebote.",
     "",
     "7. Eingangsbelege/",
     "   Sämtliche im Original hochgeladenen Belegdateien (PDF, JPG, PNG) zu den",
@@ -2176,6 +2758,7 @@ async function exportYearZip(y = year) {
 
     // Filter year records
     const yearInvoices = S.invoices.filter(i => i.number && (yOf(i.date) === y || yOf(i.paidDate) === y));
+    const yearQuotes = (S.quotes || []).filter(q => q.number && yOf(q.date) === y);
     const yearEntries = S.entries.filter(ent => yOf(ent.date) === y);
     const yearAssets = (S.fixedAssets || []).filter(a => {
       const c = calcAsset(a, y);
@@ -2190,6 +2773,7 @@ async function exportYearZip(y = year) {
       exportedAt: new Date().toISOString(),
       settings: s,
       customers: S.customers,
+      quotes: yearQuotes,
       invoices: yearInvoices,
       entries: yearEntries,
       fixedAssets: S.fixedAssets || []
@@ -2208,6 +2792,19 @@ async function exportYearZip(y = year) {
           addFile(`Ausgangsrechnungen/${fname}`, pdfBytes);
         } catch (err) {
           console.warn(`Fehler bei PDF-Erstellung für ${inv.number}:`, err);
+        }
+      }
+    }
+
+    // Angebote als PDFs
+    if (yearQuotes.length) {
+      for (const q of yearQuotes) {
+        try {
+          const pdfBytes = new Uint8Array(quotePdf(q, "arraybuffer"));
+          const fname = sanitize(`Angebot_${q.number}.pdf`);
+          addFile(`Angebote/${fname}`, pdfBytes);
+        } catch (err) {
+          console.warn(`Fehler bei PDF-Erstellung für Angebot ${q.number}:`, err);
         }
       }
     }
@@ -2253,6 +2850,7 @@ async function exportYearZip(y = year) {
     // 7. README-Abschluss-[JAHR].txt
     const readme = generateReadmeReport(y, {
       invoicesCount: yearInvoices.length,
+      quotesCount: yearQuotes.length,
       entriesCount: yearEntries.length,
       receiptsTotal: receiptsToFetch.length,
       receiptsSaved: fetchedReceiptsCount
@@ -2278,11 +2876,11 @@ async function importJson(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
   if (data?.app !== "Kontobuch" || !Array.isArray(data.invoices)) { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
-  const n = (data.customers?.length || 0) + data.invoices.length + (data.entries?.length || 0) + (data.fixedAssets?.length || 0);
+  const n = (data.customers?.length || 0) + (data.quotes?.length || 0) + data.invoices.length + (data.entries?.length || 0) + (data.fixedAssets?.length || 0);
   confirmBox("Backup einspielen?", `Das Backup vom ${fDate((data.exportedAt || "").slice(0, 10))} enthält ${n} Datensätze. Einträge mit gleicher Kennung werden überschrieben, alles andere bleibt erhalten.`, "Einspielen", async () => {
     let ok = true;
     if (data.settings && Object.keys(data.settings).length) ok = await saveSettings(data.settings);
-    for (const coll of ["customers", "invoices", "entries", "fixedAssets"]) {
+    for (const coll of ["customers", "quotes", "invoices", "entries", "fixedAssets"]) {
       for (const d of data[coll] || []) { if (!ok) break; const { id, ...rest } = d; if (id) ok = await guard(() => db.collection(coll).doc(id).set(rest)); }
     }
     if (ok) toast(`${n} Datensätze eingespielt`);
@@ -2360,26 +2958,36 @@ const ACT = {
   close: () => closeModal(),
   nav: d => { view = d.v; lsSet("kb.view", view); history.replaceState(null, "", "#" + view); closeModal(); render(); window.scrollTo(0, 0); },
   "f-inv": d => { F.inv = d.v; render(); },
+  "f-quo": d => { F.quo = d.v; render(); },
   "f-ent": d => { F.ent = d.v; render(); },
   "new-invoice": () => newInvoice(),
+  "new-quote": () => newQuote(),
   "new-customer": () => customerForm(),
   "new-out": () => entryForm({ kind: "out", category: "sonstige" }),
   "new-in": () => entryForm({ kind: "in", category: "umsatz" }),
   "edit-customer": d => customerForm(S.customers.find(c => c.id === d.id)),
   "edit-entry": d => { const e = S.entries.find(x => x.id === d.id); if (e) entryForm(e); },
   "open-invoice": d => openInvoice(d.id),
+  "open-quote": d => openQuote(d.id),
   "mark-paid": d => markPaid(d.id),
   unpay: d => { const inv = S.invoices.find(i => i.id === d.id); confirmBox("Zahlung zurücknehmen?", `Rechnung ${esc(inv.number)} wird wieder als offen geführt.`, "Zurücknehmen",
     async () => { const { id, ...rest } = inv; await saveDoc("invoices", id, { ...rest, status: "open", paidDate: null }); }); },
   pdf: d => savePdf(S.invoices.find(i => i.id === d.id)),
   "pdf-open": d => openPdfInTab(S.invoices.find(i => i.id === d.id)),
+  "quote-pdf": d => saveQuotePdf((S.quotes || []).find(q => q.id === d.id)),
+  "quote-pdf-open": d => openQuotePdfInTab((S.quotes || []).find(q => q.id === d.id)),
+  "quote-accept": d => acceptQuote(d.id),
+  "quote-reject": d => rejectQuote(d.id),
+  "quote-to-invoice": d => convertQuoteToInvoice(d.id),
+  "dup-quote": d => newQuote((S.quotes || []).find(q => q.id === d.id)),
+  "del-quote": d => confirmBox("Angebots-Entwurf löschen?", "Der Entwurf wird endgültig gelöscht.", "Löschen", () => delDoc("quotes", d.id)),
   "view-receipt": d => openReceiptModal(d.id, d.name),
   xml: d => saveFacturXXml(S.invoices.find(i => i.id === d.id)),
   "dup-invoice": d => newInvoice(S.invoices.find(i => i.id === d.id)),
   "cancel-invoice": d => cancelInvoice(d.id),
   "del-invoice": d => confirmBox("Entwurf löschen?", "Der Entwurf hat noch keine Rechnungsnummer und wird endgültig gelöscht.", "Löschen", () => delDoc("invoices", d.id)),
-  "del-customer": d => { const used = S.invoices.some(i => i.customerId === d.id);
-    confirmBox("Kunde löschen?", used ? "Bestehende Rechnungen behalten die Anschrift, die beim Schreiben eingetragen war." : "Der Kunde wird endgültig gelöscht.", "Löschen", () => delDoc("customers", d.id)); },
+  "del-customer": d => { const used = S.invoices.some(i => i.customerId === d.id) || (S.quotes || []).some(q => q.customerId === d.id);
+    confirmBox("Kunde löschen?", used ? "Bestehende Rechnungen und Angebote behalten die Anschrift, die beim Schreiben eingetragen war." : "Der Kunde wird endgültig gelöscht.", "Löschen", () => delDoc("customers", d.id)); },
   "del-entry": d => { const e = S.entries.find(x => x.id === d.id);
     confirmBox("Buchung löschen?", `Die Buchung${e?.receiptId ? " und ihr Beleg werden" : " wird"} endgültig gelöscht.`, "Löschen", async () => {
       if (await delDoc("entries", d.id) && e?.receiptId && assets) assets.delete(e.receiptId).catch(() => {}); }); },
@@ -2401,10 +3009,21 @@ const ACT = {
   "export-assets-csv": () => exportAssetsCsv(year),
   "item-add": () => { syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
   "item-del": d => { syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
+  "quote-item-add": () => { syncQuoteItems(); edQuote.items.push({ desc: "", qty: 1, unit: edQuote.items.at(-1)?.unit || "", price: "", vat: edQuote.items.at(-1)?.vat ?? 19 }); renderQuoteItems(); $(`#qit-${edQuote.items.length - 1}-desc`)?.focus(); },
+  "quote-item-del": d => { syncQuoteItems(); edQuote.items.splice(Number(d.qi), 1); renderQuoteItems(); },
   "inv-save-draft": () => saveDraft(),
+  "quote-save-draft": () => saveQuoteDraft(),
   "export-json": () => exportJson(),
   "export-csv": () => exportCsv(),
   "export-year-zip": () => exportYearZip(year),
+  "export-year-zip-explicit": d => exportYearZip(Number(d.year)),
+  "dismiss-reminder": async d => {
+    const s = sett();
+    const dismissed = { ...(s.dismissedReminders || {}), [d.year]: true };
+    await saveSettings({ dismissedReminders: dismissed });
+    toast(`Erinnerung für ${d.year} ausgeblendet`);
+    render();
+  },
 };
 function syncItems() {
   document.querySelectorAll("#items .item-row[data-i]").forEach(row => {
@@ -2435,11 +3054,18 @@ document.addEventListener("input", e => {
     const it = ed.items[Number(row.dataset.i)]; it[e.target.dataset.f] = e.target.value;
     $("output", row).textContent = num(r2(parseNum(it.qty) * parseNum(it.price))); renderTotals();
   }
+  const qrow = e.target.closest("#quote-items .item-row[data-qi]");
+  if (qrow && edQuote) {
+    const it = edQuote.items[Number(qrow.dataset.qi)]; it[e.target.dataset.qf] = e.target.value;
+    $("[data-qline]", qrow).textContent = num(r2(parseNum(it.qty) * parseNum(it.price))); renderQuoteTotals();
+  }
 });
 document.addEventListener("change", e => {
   const k = e.target.dataset.change;
   if (k === "year") { year = Number(e.target.value); render(); }
+  if (k === "period") { period = e.target.value; render(); }
   if (k === "inv-cust" && ed) { const c = S.customers.find(x => x.id === e.target.value); if (c) $("#i-rec").value = recipientOf(c); }
+  if (k === "quote-cust" && edQuote) { const c = S.customers.find(x => x.id === e.target.value); if (c) $("#q-rec").value = recipientOf(c); }
   if (k === "entry-kind") {
     const f = e.target.form; const fd = new FormData(f); const id = f.dataset.id;
     const old = S.entries.find(x => x.id === id) || {};
@@ -2487,7 +3113,10 @@ document.addEventListener("submit", async e => {
     for (const [k, v] of fd.entries()) patch[k] = typeof v === "string" ? v.trim() : v;
     patch.kleinunternehmer = $("#s-ku").checked;
     patch.nextInvoiceNo = Math.max(1, parseInt(patch.nextInvoiceNo, 10) || 1);
+    patch.nextQuoteNo = Math.max(1, parseInt(patch.nextQuoteNo, 10) || 1);
+    patch.quoteValidityDays = Math.max(1, parseInt(patch.quoteValidityDays, 10) || 30);
     patch.counterYear = new Date().getFullYear();
+    patch.quoteCounterYear = new Date().getFullYear();
     patch.paymentDays = Math.max(0, parseInt(patch.paymentDays, 10) || 0);
     patch.iban = (patch.iban || "").replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim().toUpperCase();
     const b = $("button[type=submit]", f); b.disabled = true;
@@ -2507,6 +3136,7 @@ document.addEventListener("submit", async e => {
   if (kind === "asset") submitAsset(f);
   if (kind === "entry") submitEntry(f);
   if (kind === "invoice") { syncItems(); finalizeInvoice(); }
+  if (kind === "quote") { syncQuoteItems(); finalizeQuote(); }
   if (kind === "paid") {
     const inv = S.invoices.find(i => i.id === f.dataset.id); const { id, ...rest } = inv;
     if (await saveDoc("invoices", id, { ...rest, status: "paid", paidDate: new FormData(f).get("paidDate") })) { closeModal(); toast(`Rechnung ${inv.number} als bezahlt gebucht`); }
@@ -2524,7 +3154,7 @@ async function boot() {
   window.claude.use("downloads").then(d => { downloads = d; render(); }).catch(() => {});
   const onErr = err => { console.error(err); S.conn = "err"; render(); };
   db.doc("book/main").onSnapshot(snap => { S.settings = snap.exists ? { ...snap.data() } : {}; S.ready.settings = true; if (!$('form[data-form="settings"]') || !document.activeElement?.closest?.("form")) render(); else renderNav(); }, onErr);
-  for (const c of ["customers", "invoices", "entries", "fixedAssets"]) {
+  for (const c of ["customers", "quotes", "invoices", "entries", "fixedAssets"]) {
     db.collection(c).onSnapshot(q => { S[c] = q.docs.map(d => ({ id: d.id, ...d.data() })); S.ready[c] = true; render(); }, onErr);
   }
 }
