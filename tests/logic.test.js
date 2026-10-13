@@ -5,9 +5,9 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml };")(
+const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset };")(
   { getItem: () => null, setItem() {} }, { hash: "" });
-const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml } = app;
+const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml, calcAsset } = app;
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
 S.settings = { invoicePrefix: "RE-2026-", nextInvoiceNo: 41 };
@@ -85,5 +85,62 @@ assert.ok(pdfHtml.includes("In neuem Tab öffnen ↗"));
 const imgHtml = receiptPreviewHtml("/_blob/img456", "beleg.jpg");
 assert.ok(imgHtml.includes("<img class=\"preview-img\""));
 assert.ok(imgHtml.includes("beleg.jpg"));
+
+// Anlagenverzeichnis: Lineare AfA (§ 7 Abs. 1 EStG)
+// Plotter gekauft 15.04.2026 für 2.400 €, 5 Jahre Nutzungsdauer (480 €/Jahr)
+const plotter = { id: "a1", name: "Roland Plotter", date: "2026-04-15", cost: 2400, nd: 5, method: "linear" };
+
+// 2026: 9 Monate AfA (April bis Dez) = 480 * 9/12 = 360 €
+const p26 = calcAsset(plotter, 2026);
+assert.strictEqual(p26.bookStart, 0);
+assert.strictEqual(p26.additions, 2400);
+assert.strictEqual(p26.afa, 360);
+assert.strictEqual(p26.bookEnd, 2040);
+
+// 2027: volles Jahr AfA = 480 €
+const p27 = calcAsset(plotter, 2027);
+assert.strictEqual(p27.bookStart, 2040);
+assert.strictEqual(p27.additions, 0);
+assert.strictEqual(p27.afa, 480);
+assert.strictEqual(p27.bookEnd, 1560);
+
+// 2030: vorletztes Jahr = 480 €
+const p30 = calcAsset(plotter, 2030);
+assert.strictEqual(p30.bookStart, 600);
+assert.strictEqual(p30.afa, 480);
+assert.strictEqual(p30.bookEnd, 120);
+
+// 2031: letztes Jahr (verbleibende 3 Monate Jan–März) = 120 €
+const p31 = calcAsset(plotter, 2031);
+assert.strictEqual(p31.bookStart, 120);
+assert.strictEqual(p31.afa, 120);
+assert.strictEqual(p31.bookEnd, 0);
+
+// 2032: vollständig abgeschrieben
+const p32 = calcAsset(plotter, 2032);
+assert.strictEqual(p32.bookStart, 0);
+assert.strictEqual(p32.afa, 0);
+assert.strictEqual(p32.bookEnd, 0);
+
+// GWG: Sofortabschreibung im Anschaffungsjahr
+const gwg = { id: "a2", name: "Drucker", date: "2026-09-01", cost: 450, nd: 1, method: "gwg" };
+const g26 = calcAsset(gwg, 2026);
+assert.strictEqual(g26.bookStart, 0);
+assert.strictEqual(g26.additions, 450);
+assert.strictEqual(g26.afa, 450);
+assert.strictEqual(g26.bookEnd, 0);
+
+const g27 = calcAsset(gwg, 2027);
+assert.strictEqual(g27.bookStart, 0);
+assert.strictEqual(g27.afa, 0);
+assert.strictEqual(g27.bookEnd, 0);
+
+// Automatische Übernahme in EÜR (Kz. 130)
+S.fixedAssets = [plotter, gwg];
+const euerWithAssets = euer(2026);
+// In 2026: 360 € (Plotter) + 450 € (GWG) + 188.26 € (aus vorherigen S.entries) = 998.26 €
+const afaLine = euerWithAssets.out.find(l => l.kz === "130");
+assert.strictEqual(afaLine.amount, 998.26);
+assert.strictEqual(euerWithAssets.afaFromAssets, 810);
 
 console.log("OK");

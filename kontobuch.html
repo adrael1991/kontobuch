@@ -314,6 +314,7 @@ const VIEWS = [
   ["invoices", "Rechnungen"],
   ["entries", "Einnahmen & Ausgaben"],
   ["customers", "Kunden"],
+  ["anlagen", "Anlagen"],
   ["euer", "EÜR"],
   ["settings", "Einstellungen"],
 ];
@@ -345,7 +346,7 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch { return null
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
 /* ---------- state ---------- */
-const S = { settings: {}, customers: [], invoices: [], entries: [], ready: {}, conn: "pending" };
+const S = { settings: {}, customers: [], invoices: [], entries: [], fixedAssets: [], ready: {}, conn: "pending" };
 let db = null, assets = null, downloads = null;
 let view = VIEWS.some(v => v[0] === location.hash.slice(1)) ? location.hash.slice(1) : (lsGet("kb.view") || "overview");
 let year = new Date().getFullYear();
@@ -356,7 +357,7 @@ const DEF = { kleinunternehmer: true, invoicePrefix: "RE-{JAHR}-", nextInvoiceNo
   intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
   closing: "Mit freundlichen Grüßen" };
 const sett = () => ({ ...DEF, ...S.settings });
-const allReady = () => ["settings", "customers", "invoices", "entries"].every(k => S.ready[k]);
+const allReady = () => ["settings", "customers", "invoices", "entries", "fixedAssets"].every(k => S.ready[k]);
 
 /* ---------- money logic ---------- */
 function calcInv(inv) {
@@ -403,6 +404,59 @@ function journal(y) {
   }
   return rows.sort((a, b) => b.date.localeCompare(a.date));
 }
+/* Abschreibungs-Berechnung nach § 7 Abs. 1 EStG (monatsgenau) bzw. GWG (§ 6 Abs. 2) */
+function calcAsset(a, targetYear) {
+  const acqY = yOf(a.date);
+  const acqM = a.date ? (Number(a.date.slice(5, 7)) || 1) : 1;
+  const cost = Number(a.cost || 0);
+  const nd = Math.max(1, Number(a.nd || 1));
+  const isGwg = a.method === "gwg" || nd === 1;
+
+  if (!acqY || targetYear < acqY) {
+    return { bookStart: 0, additions: 0, afa: 0, bookEnd: 0, isFuture: true, isDone: false };
+  }
+
+  if (isGwg) {
+    if (targetYear === acqY) {
+      return { bookStart: 0, additions: cost, afa: cost, bookEnd: 0, isFuture: false, isDone: true };
+    }
+    return { bookStart: 0, additions: 0, afa: 0, bookEnd: 0, isFuture: false, isDone: true };
+  }
+
+  const mFirst = 13 - acqM;
+  const yearlyNorm = r2(cost / nd);
+  const firstYearAfa = r2(yearlyNorm * (mFirst / 12));
+
+  let curBook = cost;
+  for (let y = acqY; y <= targetYear; y++) {
+    const bookStart = (y === acqY) ? 0 : curBook;
+    const additions = (y === acqY) ? cost : 0;
+    const basis = (y === acqY) ? cost : curBook;
+
+    let afa = 0;
+    if (basis > 0) {
+      if (y === acqY) {
+        afa = Math.min(basis, firstYearAfa);
+      } else {
+        afa = Math.min(basis, yearlyNorm);
+      }
+    }
+    const bookEnd = r2(basis - afa);
+    curBook = bookEnd;
+
+    if (y === targetYear) {
+      return {
+        bookStart,
+        additions,
+        afa,
+        bookEnd,
+        isFuture: false,
+        isDone: bookEnd === 0 && (bookStart === 0 || additions === 0)
+      };
+    }
+  }
+  return { bookStart: 0, additions: 0, afa: 0, bookEnd: 0, isFuture: false, isDone: true };
+}
 function euer(y) {
   const rows = journal(y);
   const sums = {}; let nonDeductible = 0;
@@ -418,10 +472,14 @@ function euer(y) {
       add(OUT_KZ[r.category] || "183", amt);
     }
   }
+  const assetCalcs = (S.fixedAssets || []).map(a => calcAsset(a, y));
+  const afaFromAssets = r2(assetCalcs.reduce((acc, c) => acc + (c?.afa || 0), 0));
+  if (afaFromAssets) add("130", afaFromAssets);
+
   const lines = list => list.filter(([kz]) => sums[kz]).map(([kz, label]) => ({ kz, label, amount: sums[kz] }));
   const inc = lines(INC_LINES), out = lines(OUT_LINES);
   const incTotal = r2(inc.reduce((a, l) => a + l.amount, 0)), outTotal = r2(out.reduce((a, l) => a + l.amount, 0));
-  return { rows, inc, out, ust: sums["140"] || 0, vorsteuer: sums["185"] || 0, nonDeductible, incTotal, outTotal, profit: r2(incTotal - outTotal) };
+  return { rows, inc, out, ust: sums["140"] || 0, vorsteuer: sums["185"] || 0, nonDeductible, incTotal, outTotal, profit: r2(incTotal - outTotal), afaFromAssets };
 }
 /* Gesamtumsatz nach § 19 UStG: vereinnahmte Entgelte. */
 function kuTurnover(y) {
@@ -431,6 +489,7 @@ function years() {
   const ys = new Set([new Date().getFullYear(), year]);
   S.invoices.forEach(i => { if (i.date) ys.add(yOf(i.date)); if (i.paidDate) ys.add(yOf(i.paidDate)); });
   S.entries.forEach(e => e.date && ys.add(yOf(e.date)));
+  (S.fixedAssets || []).forEach(a => a.date && ys.add(yOf(a.date)));
   return [...ys].sort((a, b) => b - a);
 }
 
@@ -490,7 +549,7 @@ function renderNav() {
 }
 function render() {
   renderNav();
-  const fn = { overview: vOverview, invoices: vInvoices, entries: vEntries, customers: vCustomers, euer: vEuer, settings: vSettings }[view] || vOverview;
+  const fn = { overview: vOverview, invoices: vInvoices, entries: vEntries, customers: vCustomers, anlagen: vAnlagen, euer: vEuer, settings: vSettings }[view] || vOverview;
   let banner = "";
   if (S.conn === "none") banner = `<div class="banner">Der Datenspeicher ist hier nicht verfügbar. Öffne das Kontobuch angemeldet auf claude.ai, damit deine Buchungen gespeichert werden.</div>`;
   if (S.conn === "err") banner = `<div class="banner">Die Verbindung zum Datenspeicher wurde unterbrochen. Lade die Seite neu.</div>`;
@@ -628,6 +687,45 @@ function vCustomers() {
     </tbody></table></div>` : `<div class="sheet-card empty"><h2>Noch keine Kunden</h2><p>Lege deine Kunden mit Anschrift an. Beim Schreiben einer Rechnung füllst du den Empfänger dann mit einem Klick aus.</p><button class="btn primary" data-act="new-customer">Ersten Kunden anlegen</button></div>`}`;
 }
 
+function vAnlagen() {
+  const list = [...(S.fixedAssets || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const withCalc = list.map(a => ({ ...a, calc: calcAsset(a, year) }));
+  const relevant = withCalc.filter(a => yOf(a.date) <= year);
+
+  // Summen für year
+  const sumStart = r2(relevant.reduce((acc, a) => acc + a.calc.bookStart, 0));
+  const sumAdd = r2(relevant.reduce((acc, a) => acc + a.calc.additions, 0));
+  const sumAfa = r2(relevant.reduce((acc, a) => acc + a.calc.afa, 0));
+  const sumEnd = r2(relevant.reduce((acc, a) => acc + a.calc.bookEnd, 0));
+
+  return `
+  <div class="head"><div class="head-l"><h3>Anlagenverzeichnis & AfA</h3><h1>Anlagen ${year}</h1></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="export-assets-csv" ${downloads ? "" : "disabled"}>Anlagen als CSV</button>
+      <button class="btn primary" data-act="new-asset">Anlagegut anlegen</button></div></div>
+  <div class="kpis">
+    <div class="kpi"><h3>Buchwert 01.01.</h3><span class="v">${eur(sumStart)}</span><span class="s">Anfangsbestand ${year}</span></div>
+    <div class="kpi"><h3>Zugänge</h3><span class="v">${eur(sumAdd)}</span><span class="s">Investitionen ${year}</span></div>
+    <div class="kpi"><h3>AfA ${year}</h3><span class="v out">${eur(sumAfa)}</span><span class="s">EÜR-Kennzahl 130</span></div>
+    <div class="kpi"><h3>Buchwert 31.12.</h3><span class="v">${eur(sumEnd)}</span><span class="s">Endbestand ${year}</span></div>
+  </div>
+  <p class="note">Nach § 7 Abs. 1 EStG monatsgenau berechnet (Kaufmonat zählt voll). Bei Kleinunternehmern (§ 19 UStG) sind die Bruttokosten maßgebend (§ 9b Abs. 1 EStG). Die Jahres-AfA von <b class="mono">${eur(sumAfa)}</b> mindert deinen Gewinn automatisch in der Anlage EÜR (Kennzahl 130). Die Spalten entsprechen der Anlage AVEÜR in ELSTER.</p>
+  ${!allReady() ? loading() : !relevant.length ? `<div class="sheet-card empty"><h2>Noch keine Anlagegüter für ${year}</h2><p>Erfasse Anschaffungen ab 800 € netto (z. B. Plotter, Computer, Arbeitsgeräte, Büromöbel). Kontobuch berechnet die monatsgenaue AfA und den Restbuchwert für die Anlage AVEÜR automatisch.</p><button class="btn primary" data-act="new-asset">Erstes Anlagegut anlegen</button></div>` : `
+  <div class="table-wrap sheet-card"><table>
+    <thead><tr><th>Bezeichnung</th><th>Anschaffung</th><th>Nutzungsdauer</th><th class="r">Buchwert 01.01.</th><th class="r">Zugänge</th><th class="r">AfA ${year}</th><th class="r">Buchwert 31.12.</th><th>Beleg</th></tr></thead><tbody>
+    ${relevant.map(a => `<tr class="clickable" data-act="edit-asset" data-id="${a.id}">
+      <td><b>${esc(a.name)}</b>${a.note ? `<span class="sub">${esc(a.note)}</span>` : ""}</td>
+      <td class="small">${fDate(a.date)}<span class="sub">${eur(a.cost)}</span></td>
+      <td class="small">${a.method === "gwg" ? "GWG (1 J.)" : `${a.nd} Jahre`}<span class="sub">${a.method === "gwg" ? "Sofortabschreibung" : "linear"}</span></td>
+      <td class="amt">${num(a.calc.bookStart)}</td>
+      <td class="amt in">${a.calc.additions ? num(a.calc.additions) : "–"}</td>
+      <td class="amt out">${a.calc.afa ? num(a.calc.afa) : "–"}</td>
+      <td class="amt">${num(a.calc.bookEnd)}</td>
+      <td class="small">${a.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(a.receiptId)}" data-name="${esc(a.receiptName || a.name || 'Beleg')}" data-stop title="Kaufbeleg ansehen">👁 Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(a.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">–</span>'}</td>
+    </tr>`).join("")}
+    <tr class="total"><td colspan="3">Summe ${relevant.length} Anlagegüter</td><td class="amt">${num(sumStart)}</td><td class="amt in">${num(sumAdd)}</td><td class="amt out">${num(sumAfa)}</td><td class="amt">${num(sumEnd)}</td><td></td></tr>
+  </tbody></table></div>`}`;
+}
+
 function vEuer() {
   const s = sett(); const e = euer(year);
   const rowsOf = list => list.map(l => `<tr><td class="mono">${l.kz}</td><td>${esc(l.label)}</td><td class="amt">${num(l.amount)}</td></tr>`).join("");
@@ -654,7 +752,7 @@ function vEuer() {
     ${s.kleinunternehmer ? `<p class="note">Als Kleinunternehmer ziehst du keine Vorsteuer ab. Ausgaben stehen deshalb mit dem Bruttobetrag in der EÜR.</p>` : `<div class="sheet-card panel"><h2>Umsatzsteuer ${year}</h2>
       <div class="totals" style="width:100%"><div><span>Vereinnahmte USt</span><span class="mono">${num(e.ust)}</span></div><div><span>− Vorsteuer</span><span class="mono">${num(e.vorsteuer)}</span></div>
       <div class="g"><span>${e.ust - e.vorsteuer >= 0 ? "Zahllast" : "Erstattung"}</span><span class="mono">${num(Math.abs(e.ust - e.vorsteuer))}</span></div></div></div>`}
-    <p class="note">Abschreibungen trägst du als Ausgabe in der Kategorie „Abschreibungen (AfA)“ ein, ohne Beleg, mit dem Jahresbetrag aus deinem Anlagenverzeichnis. Nicht enthalten sind Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
+    <p class="note">Abschreibungen (Kz. 130) werden automatisch aus deinem <a href="#anlagen" data-act="nav" data-v="anlagen">Anlagenverzeichnis</a> berechnet (${eur(e.afaFromAssets || 0)} in ${year}). Nicht enthalten sind Homeoffice-Pauschale und private Kfz-Nutzung. Trag diese direkt in ELSTER ein oder kläre sie mit deiner Steuerberatung.</p>
   </aside></div>`}`;
 }
 
@@ -722,6 +820,163 @@ function customerForm(c = {}) {
     <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></div></form>`);
 }
 const recipientOf = c => [c.name, c.contact, c.street, [c.zip, c.city].filter(Boolean).join(" "), c.country].filter(x => x && String(x).trim()).join("\n");
+
+/* ---------- anlagen (fixed assets) ---------- */
+function assetForm(a = {}) {
+  const isNew = !a.id;
+  const c = {
+    name: a.name || "",
+    date: a.date || today(),
+    cost: a.cost != null ? a.cost : "",
+    nd: a.nd || 3,
+    method: a.method || "linear",
+    note: a.note || "",
+    receiptId: a.receiptId || null,
+    receiptName: a.receiptName || null,
+  };
+  openModal(isNew ? "Neues Anlagegut erfassen" : "Anlagegut bearbeiten", `
+  <form class="form" data-form="asset" data-id="${a.id || ""}" autocomplete="off">
+    <div class="split-layout">
+      <div class="fields">
+        <div class="f full">
+          <label for="a-name">Bezeichnung des Wirtschaftsguts</label>
+          <input id="a-name" name="name" value="${esc(c.name)}" placeholder="z. B. Roland Schneideplotter GS-24, MacBook Pro" required autofocus>
+        </div>
+        <div class="f s2">
+          <label for="a-date">Anschaffungsdatum</label>
+          <input id="a-date" type="date" name="date" value="${esc(c.date)}" required>
+        </div>
+        <div class="f s2">
+          <label for="a-cost">Anschaffungskosten brutto (€)</label>
+          <input id="a-cost" name="cost" inputmode="decimal" value="${esc(numIn(c.cost))}" placeholder="0,00" required>
+        </div>
+        <div class="f s2">
+          <label for="a-nd">Nutzungsdauer (Jahre)</label>
+          <input id="a-nd" name="nd" type="number" min="1" max="50" step="1" value="${esc(c.nd)}" required>
+        </div>
+        <div class="f s2">
+          <label for="a-method">Abschreibung</label>
+          <select id="a-method" name="method">
+            <option value="linear" ${c.method !== "gwg" ? "selected" : ""}>Lineare AfA (§ 7 Abs. 1)</option>
+            <option value="gwg" ${c.method === "gwg" ? "selected" : ""}>GWG Sofortabschreibung (§ 6 Abs. 2)</option>
+          </select>
+        </div>
+        <div class="f full" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:-6px">
+          <span class="sub" style="width:100%">AfA-Richtwerte nach BMF-Tabelle:</span>
+          <button type="button" class="btn sm ghost" data-act="set-nd" data-nd="3">3 J. Computer/EDV</button>
+          <button type="button" class="btn sm ghost" data-act="set-nd" data-nd="5">5 J. Geräte/Werkzeuge</button>
+          <button type="button" class="btn sm ghost" data-act="set-nd" data-nd="8">8 J. Maschinen/Plotter</button>
+          <button type="button" class="btn sm ghost" data-act="set-nd" data-nd="13">13 J. Büromöbel</button>
+        </div>
+        <div class="f full">
+          <label for="a-note">Notiz / Seriennummer</label>
+          <input id="a-note" name="note" value="${esc(c.note)}" placeholder="optional, z. B. Seriennummer oder Händler">
+        </div>
+        <div class="f full">
+          <span class="lbl">Kaufbeleg</span>
+          ${c.receiptId ? `<div class="toolbar"><a class="btn sm" href="/_blob/${esc(c.receiptId)}" target="_blank" rel="noopener">${esc(c.receiptName || "Beleg ansehen")}</a>
+            <label class="check small"><input type="checkbox" id="a-rm" name="removeReceipt"> Beleg entfernen</label></div>` : ""}
+          ${assets ? `<input id="a-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf,.xml,text/xml,application/xml"><span class="hint">PDF, JPG oder PNG der Kaufrechnung.</span>`
+            : `<span class="hint">Belege hochladen ist im Kontobuch verfügbar.</span>`}
+        </div>
+      </div>
+      <div id="asset-preview-container">
+        ${receiptPreviewHtml(c.receiptId ? `/_blob/${esc(c.receiptId)}` : null, c.receiptName || (c.receiptId ? "Kaufbeleg" : ""))}
+      </div>
+    </div>
+    <div class="form-foot">
+      <div class="grp">${a.id ? `<button type="button" class="btn danger" data-act="del-asset" data-id="${a.id}">Löschen</button>` : ""}</div>
+      <div class="grp"><button type="button" class="btn" data-act="close">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div>
+    </div>
+  </form>`, { extraWide: true });
+}
+async function submitAsset(form) {
+  const fd = new FormData(form);
+  const id = form.dataset.id || uid();
+  const old = (S.fixedAssets || []).find(x => x.id === id) || {};
+  const cost = r2(parseNum(fd.get("cost")));
+  if (!cost) { toast("Bitte gib Anschaffungskosten ein.", true); return; }
+  const name = fd.get("name").trim();
+  if (!name) { toast("Bitte gib eine Bezeichnung ein.", true); return; }
+  const nd = Math.max(1, parseInt(fd.get("nd"), 10) || 1);
+  const data = {
+    name,
+    date: fd.get("date"),
+    cost,
+    nd,
+    method: fd.get("method") || "linear",
+    note: (fd.get("note") || "").trim(),
+    receiptId: old.receiptId || null,
+    receiptName: old.receiptName || null,
+    createdAt: old.createdAt || new Date().toISOString()
+  };
+
+  const btn = $("button[type=submit]", form);
+  btn.disabled = true;
+
+  const file = fd.get("file");
+  let toDelete = null;
+  if (fd.get("removeReceipt") && data.receiptId) {
+    toDelete = data.receiptId;
+    data.receiptId = null;
+    data.receiptName = null;
+  }
+  if (file && file.size && assets) {
+    btn.textContent = "Lade Beleg hoch …";
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const type = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" }[ext] || file.type;
+    try {
+      const up = await assets.upload(file, { type });
+      if (data.receiptId) toDelete = data.receiptId;
+      data.receiptId = up.id;
+      data.receiptName = file.name;
+    } catch (err) {
+      console.error(err);
+      toast("Beleg konnte nicht hochgeladen werden.", true);
+      btn.disabled = false;
+      btn.textContent = "Speichern";
+      return;
+    }
+  }
+
+  if (await saveDoc("fixedAssets", id, data)) {
+    if (toDelete && assets) assets.delete(toDelete).catch(() => {});
+    closeModal();
+    toast("Anlagegut gespeichert");
+  } else {
+    btn.disabled = false;
+    btn.textContent = "Speichern";
+  }
+}
+async function exportAssetsCsv(y) {
+  if (!downloads) return;
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const list = [...(S.fixedAssets || [])].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const header = ["Bezeichnung", "Anschaffungsdatum", "Anschaffungskosten (EUR)", "Nutzungsdauer (Jahre)", "Methode",
+    `Buchwert 01.01.${y}`, `Zugänge ${y}`, `AfA ${y}`, `Buchwert 31.12.${y}`, "Notiz"];
+  const lines = [header.map(q).join(";")];
+  list.forEach(a => {
+    const c = calcAsset(a, y);
+    lines.push([
+      a.name,
+      fDate(a.date),
+      num(a.cost),
+      a.nd,
+      a.method === "gwg" ? "GWG (Sofortabschreibung)" : "Lineare AfA",
+      num(c.bookStart),
+      num(c.additions),
+      num(c.afa),
+      num(c.bookEnd),
+      a.note || ""
+    ].map(q).join(";"));
+  });
+  try {
+    await downloads.save({ filename: `Kontobuch-Anlagenverzeichnis-${y}.csv`, data: "\ufeff" + lines.join("\r\n") });
+    toast("Anlagenverzeichnis als CSV gespeichert");
+  } catch (e) {
+    if (e?.code !== "declined") toast("Konnte CSV nicht speichern", true);
+  }
+}
 
 /* ---------- entries ---------- */
 /* Vorschläge fürs Partner-Feld: Einnahmen von Kunden, Ausgaben an Lieferanten, dazu alles schon Gebuchte. */
@@ -1574,7 +1829,7 @@ async function cancelInvoice(id) {
 /* ---------- export / import ---------- */
 async function exportJson() {
   if (!downloads) return;
-  const data = { app: "Kontobuch", version: 1, exportedAt: new Date().toISOString(), settings: S.settings, customers: S.customers, invoices: S.invoices, entries: S.entries };
+  const data = { app: "Kontobuch", version: 1, exportedAt: new Date().toISOString(), settings: S.settings, customers: S.customers, invoices: S.invoices, entries: S.entries, fixedAssets: S.fixedAssets };
   try { await downloads.save({ filename: `Kontobuch-Backup-${today()}.json`, data: JSON.stringify(data, null, 2) }); toast("Backup gespeichert"); }
   catch (e) { if (e?.code !== "declined") toast("Das Backup konnte nicht gespeichert werden.", true); }
 }
@@ -1592,11 +1847,11 @@ async function importJson(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
   if (data?.app !== "Kontobuch" || !Array.isArray(data.invoices)) { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
-  const n = (data.customers?.length || 0) + data.invoices.length + (data.entries?.length || 0);
+  const n = (data.customers?.length || 0) + data.invoices.length + (data.entries?.length || 0) + (data.fixedAssets?.length || 0);
   confirmBox("Backup einspielen?", `Das Backup vom ${fDate((data.exportedAt || "").slice(0, 10))} enthält ${n} Datensätze. Einträge mit gleicher Kennung werden überschrieben, alles andere bleibt erhalten.`, "Einspielen", async () => {
     let ok = true;
     if (data.settings && Object.keys(data.settings).length) ok = await saveSettings(data.settings);
-    for (const coll of ["customers", "invoices", "entries"]) {
+    for (const coll of ["customers", "invoices", "entries", "fixedAssets"]) {
       for (const d of data[coll] || []) { if (!ok) break; const { id, ...rest } = d; if (id) ok = await guard(() => db.collection(coll).doc(id).set(rest)); }
     }
     if (ok) toast(`${n} Datensätze eingespielt`);
@@ -1697,6 +1952,22 @@ const ACT = {
   "del-entry": d => { const e = S.entries.find(x => x.id === d.id);
     confirmBox("Buchung löschen?", `Die Buchung${e?.receiptId ? " und ihr Beleg werden" : " wird"} endgültig gelöscht.`, "Löschen", async () => {
       if (await delDoc("entries", d.id) && e?.receiptId && assets) assets.delete(e.receiptId).catch(() => {}); }); },
+  "new-asset": () => assetForm(),
+  "edit-asset": d => assetForm(S.fixedAssets.find(a => a.id === d.id)),
+  "del-asset": d => {
+    const a = S.fixedAssets.find(x => x.id === d.id);
+    confirmBox("Anlagegut löschen?", `Das Anlagegut „${esc(a?.name || "")}“${a?.receiptId ? " und der Beleg werden" : " wird"} endgültig gelöscht.`, "Löschen", async () => {
+      if (await delDoc("fixedAssets", d.id) && a?.receiptId && assets) assets.delete(a.receiptId).catch(() => {});
+    });
+  },
+  "set-nd": (d, btn) => {
+    const inp = $("#a-nd");
+    if (inp) inp.value = d.nd;
+    const method = $("#a-method");
+    if (method && d.nd === "1") method.value = "gwg";
+    else if (method && method.value === "gwg" && Number(d.nd) > 1) method.value = "linear";
+  },
+  "export-assets-csv": () => exportAssetsCsv(year),
   "item-add": () => { syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
   "item-del": d => { syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
   "inv-save-draft": () => saveDraft(),
@@ -1757,6 +2028,24 @@ document.addEventListener("change", e => {
       }
     }
   }
+  if (e.target.id === "a-file") {
+    const file = e.target.files[0];
+    if (file) {
+      const container = $("#asset-preview-container");
+      if (container) container.innerHTML = receiptPreviewHtml(URL.createObjectURL(file), file.name);
+    }
+  }
+  if (e.target.id === "a-rm") {
+    const container = $("#asset-preview-container");
+    if (container) {
+      if (e.target.checked) container.innerHTML = receiptPreviewHtml(null, null);
+      else {
+        const id = e.target.form?.dataset?.id;
+        const old = (S.fixedAssets || []).find(x => x.id === id);
+        if (old?.receiptId) container.innerHTML = receiptPreviewHtml(`/_blob/${esc(old.receiptId)}`, old.receiptName || "Kaufbeleg");
+      }
+    }
+  }
 });
 document.addEventListener("submit", async e => {
   const f = e.target; const kind = f.dataset.form; if (!kind) return;
@@ -1783,6 +2072,7 @@ document.addEventListener("submit", async e => {
       closeModal(); toast("Kunde gespeichert");
     }
   }
+  if (kind === "asset") submitAsset(f);
   if (kind === "entry") submitEntry(f);
   if (kind === "invoice") { syncItems(); finalizeInvoice(); }
   if (kind === "paid") {
@@ -1802,7 +2092,7 @@ async function boot() {
   window.claude.use("downloads").then(d => { downloads = d; render(); }).catch(() => {});
   const onErr = err => { console.error(err); S.conn = "err"; render(); };
   db.doc("book/main").onSnapshot(snap => { S.settings = snap.exists ? { ...snap.data() } : {}; S.ready.settings = true; if (!$('form[data-form="settings"]') || !document.activeElement?.closest?.("form")) render(); else renderNav(); }, onErr);
-  for (const c of ["customers", "invoices", "entries"]) {
+  for (const c of ["customers", "invoices", "entries", "fixedAssets"]) {
     db.collection(c).onSnapshot(q => { S[c] = q.docs.map(d => ({ id: d.id, ...d.data() })); S.ready[c] = true; render(); }, onErr);
   }
 }
