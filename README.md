@@ -1,6 +1,6 @@
 # Kontobuch
 
-Buchhaltung für Kleinunternehmer (§ 19 UStG): Rechnungen mit PDF, Ausgaben mit Belegen, Kunden, EÜR.
+Buchhaltung für Kleinunternehmer (§ 19 UStG): E-Rechnungen (ZUGFeRD 2.2 / EN 16931) mit PDF, Ausgaben mit Belegen & E-Rechnungs-Erkennung, Kunden, EÜR.
 
 - `kontobuch.html`: die App. Läuft als claude.ai-Artifact und auf dem eigenen Server.
 - `server.py`: kleiner Server (nur Python-Standardbibliothek), speichert alles in SQLite.
@@ -60,4 +60,5 @@ Es gibt keinen Login. Jeder im Heimnetz kann die App öffnen. Gib Port 8080 nich
 python3 server.py                    # http://localhost:8080, Daten in ./data
 python3 -m unittest discover tests   # Server-Tests
 node tests/logic.test.js             # Rechnungsnummern, Kunden-Import
+node tests/zugferd.test.js           # E-Rechnung: ZUGFeRD 2.2 / Factur-X (EN 16931)
 ```

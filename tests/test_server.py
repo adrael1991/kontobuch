@@ -59,6 +59,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("DELETE", "/api/files/" + fid)[0], 204)
         self.assertEqual(self.req("GET", "/_blob/" + fid)[0], 404)
 
+        # XML-Beleg (z. B. reine XRechnung)
+        status_xml, body_xml = self.req("POST", "/api/files", b"<rsm:CrossIndustryInvoice/>", "application/xml")
+        self.assertEqual(status_xml, 201)
+        fid_xml = json.loads(body_xml)["id"]
+        self.assertEqual(self.req("GET", "/_blob/" + fid_xml), (200, b"<rsm:CrossIndustryInvoice/>"))
+        self.assertEqual(self.req("DELETE", "/api/files/" + fid_xml)[0], 204)
+
 
 if __name__ == "__main__":
     unittest.main()

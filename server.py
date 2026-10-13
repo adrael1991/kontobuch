@@ -16,7 +16,14 @@ DATA = Path(os.environ.get("KONTOBUCH_DATA", ROOT / "data"))
 PORT = int(os.environ.get("KONTOBUCH_PORT", "8080"))
 COLLS = {"book", "customers", "invoices", "entries"}
 ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-FILE_TYPES = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+FILE_TYPES = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+}
 EXT_TYPES = {v: k for k, v in FILE_TYPES.items()}
 STATIC = {"shim.js": "text/javascript", "jspdf.umd.min.js": "text/javascript"}
 MAX_JSON = 1 << 20
