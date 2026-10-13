@@ -731,7 +731,7 @@ function vEuer() {
   const rowsOf = list => list.map(l => `<tr><td class="mono">${l.kz}</td><td>${esc(l.label)}</td><td class="amt">${num(l.amount)}</td></tr>`).join("");
   return `
   <div class="head"><div class="head-l"><h3>Einnahmenüberschussrechnung</h3><h1>EÜR ${year}</h1></div>
-    <div class="toolbar">${yearSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button></div></div>
+    <div class="toolbar">${yearSel()}<button class="btn" data-act="export-csv" ${downloads ? "" : "disabled"}>Journal als CSV</button><button class="btn primary" data-act="export-year-zip" ${downloads ? "" : "disabled"}>Jahresabschluss ${year} (ZIP)</button></div></div>
   <p class="note">Nach dem Zufluss-/Abflussprinzip (§ 4 Abs. 3 EStG): Rechnungen zählen im Jahr, in dem das Geld eingeht, Ausgaben im Jahr der Zahlung. Die Kennzahl (Kz.) findest du in ELSTER neben dem passenden Feld der Anlage EÜR. Felder ohne Betrag sind weggelassen, die bleiben in ELSTER leer.</p>
   ${!allReady() ? loading() : `<div class="grid2">
   <div class="table-wrap sheet-card"><table>
@@ -784,9 +784,9 @@ function vSettings() {
     <div class="form-foot"><span class="muted small">Änderungen werden sofort gespeichert.</span><button class="btn primary" type="submit">Speichern</button></div>
   </form>
   <section class="sheet-card panel">
-    <h2>Datensicherung</h2>
-    <p class="small muted">Lade regelmäßig ein Backup herunter, mindestens einmal pro Jahr nach dem Jahresabschluss. Rechnungen und Belege musst du 8 bis 10 Jahre aufbewahren. Belegdateien selbst sind nicht im Backup enthalten, nur die Verweise darauf.</p>
-    <div class="toolbar"><button class="btn" data-act="export-json" ${downloads ? "" : "disabled"}>Backup herunterladen (JSON)</button>
+    <h2>Datensicherung & GoBD-Abschluss</h2>
+    <p class="small muted">Lade regelmäßig ein Backup herunter, mindestens einmal pro Jahr nach dem Jahresabschluss. Rechnungen und Belege musst du 8 bis 10 Jahre aufbewahren (§ 147 AO). Der GoBD-Jahresabschluss (ZIP) enthält neben allen Daten auch die Originalbelege und Ausgangsrechnungs-PDFs.</p>
+    <div class="toolbar"><button class="btn primary" data-act="export-year-zip" ${downloads ? "" : "disabled"}>Jahresabschluss ${year} als ZIP</button><button class="btn" data-act="export-json" ${downloads ? "" : "disabled"}>Backup herunterladen (JSON)</button>
       <label class="btn" for="import-file">Backup einspielen …</label><input type="file" id="import-file" accept="application/json,.json" hidden data-change="import"></div>
     ${downloads ? "" : `<p class="small muted">Downloads sind in dieser Ansicht nicht verfügbar.</p>`}
   </section>`;
@@ -948,8 +948,7 @@ async function submitAsset(form) {
     btn.textContent = "Speichern";
   }
 }
-async function exportAssetsCsv(y) {
-  if (!downloads) return;
+function generateAssetsCsv(y = year) {
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const list = [...(S.fixedAssets || [])].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const header = ["Bezeichnung", "Anschaffungsdatum", "Anschaffungskosten (EUR)", "Nutzungsdauer (Jahre)", "Methode",
@@ -970,13 +969,18 @@ async function exportAssetsCsv(y) {
       a.note || ""
     ].map(q).join(";"));
   });
+  return "\ufeff" + lines.join("\r\n");
+}
+async function exportAssetsCsv(y = year) {
+  if (!downloads) return;
   try {
-    await downloads.save({ filename: `Kontobuch-Anlagenverzeichnis-${y}.csv`, data: "\ufeff" + lines.join("\r\n") });
+    await downloads.save({ filename: `Kontobuch-Anlagenverzeichnis-${y}.csv`, data: generateAssetsCsv(y) });
     toast("Anlagenverzeichnis als CSV gespeichert");
   } catch (e) {
     if (e?.code !== "declined") toast("Konnte CSV nicht speichern", true);
   }
 }
+
 
 /* ---------- entries ---------- */
 /* Vorschläge fürs Partner-Feld: Einnahmen von Kunden, Ausgaben an Lieferanten, dazu alles schon Gebuchte. */
@@ -1691,7 +1695,7 @@ async function handleReceiptFileInput(input) {
   }
 }
 
-function invoicePdf(inv) {
+function invoicePdf(inv, outputType = "blob") {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const s = inv.seller || sett(); const t = calcInv(inv);
@@ -1770,7 +1774,7 @@ function invoicePdf(inv) {
   tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
   if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); }
   footer();
-  return doc.output("blob");
+  return doc.output(outputType);
 }
 async function savePdf(inv) {
   if (!downloads || !window.jspdf) { toast("PDF-Download ist hier nicht verfügbar.", true); return; }
@@ -1833,16 +1837,443 @@ async function exportJson() {
   try { await downloads.save({ filename: `Kontobuch-Backup-${today()}.json`, data: JSON.stringify(data, null, 2) }); toast("Backup gespeichert"); }
   catch (e) { if (e?.code !== "declined") toast("Das Backup konnte nicht gespeichert werden.", true); }
 }
-async function exportCsv() {
-  if (!downloads) return;
+function generateJournalCsv(y = year) {
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = journal(year).slice().reverse();
+  const rows = journal(y).slice().reverse();
   const lines = [["Datum", "Art", "Belegnr.", "Partner", "Beschreibung", "Kategorie", "Brutto", "Netto", "USt/Vorsteuer", "Kennzahl EÜR", "Beleg vorhanden"].map(q).join(";")];
   rows.forEach(r => lines.push([fDate(r.date), r.kind === "in" ? "Einnahme" : "Ausgabe", r.ref, r.party, r.desc, r.src === "inv" ? "Rechnung" : CAT[r.category],
     num(r.gross), num(r.net), num(r.vat), r.kind === "in" ? (r.vat === 0 && r.ku ? "111" : "112") : (OUT_KZ[r.category] || "183"), r.src === "inv" ? "Rechnung" : r.receiptId ? "ja" : "nein"].map(q).join(";")));
-  try { await downloads.save({ filename: `Kontobuch-Journal-${year}.csv`, data: "﻿" + lines.join("\r\n") }); toast("CSV gespeichert"); }
+  return "\ufeff" + lines.join("\r\n");
+}
+async function exportCsv(y = year) {
+  if (!downloads) return;
+  try { await downloads.save({ filename: `Kontobuch-Journal-${y}.csv`, data: generateJournalCsv(y) }); toast("CSV gespeichert"); }
   catch (e) { if (e?.code !== "declined") toast("Die CSV-Datei konnte nicht gespeichert werden.", true); }
 }
+
+function generateEuerReport(y = year) {
+  const s = sett(); const e = euer(y);
+  const pad = (str, len) => String(str ?? "").padEnd(len);
+  const rpad = (str, len) => String(str ?? "").padStart(len);
+
+  const lines = [
+    "================================================================================",
+    `EINNAHMENÜBERSCHUSSRECHNUNG (EÜR) ${y} – BERICHT`,
+    "nach § 4 Abs. 3 EStG (Zufluss-/Abfluss-Prinzip)",
+    "================================================================================",
+    "",
+    `Unternehmen:      ${s.name || "–"}`,
+    `Inhaber:in:       ${s.owner || "–"}`,
+    `Steuernummer:     ${s.taxNo || "–"}`,
+    `USt-IdNr.:        ${s.vatId || "–"}`,
+    `Besteuerung:      ${s.kleinunternehmer ? "Kleinunternehmer (§ 19 UStG)" : "Regelbesteuerung"}`,
+    `Erstellt am:      ${fDate(today())}`,
+    "",
+    "--------------------------------------------------------------------------------",
+    "BETRIEBSEINNAHMEN",
+    "--------------------------------------------------------------------------------",
+    "Kz.  Bezeichnung                                                Betrag (EUR)",
+    "---- ---------------------------------------------------- -------------------"
+  ];
+
+  if (!e.inc.length) {
+    lines.push(`     Keine Betriebseinnahmen in ${y}`);
+  } else {
+    e.inc.forEach(row => {
+      lines.push(`${pad(row.kz, 4)} ${pad(row.label, 52)} ${rpad(num(row.amount), 19)}`);
+    });
+  }
+  lines.push("---- ---------------------------------------------------- -------------------");
+  lines.push(`${pad("159", 4)} ${pad("Summe Betriebseinnahmen", 52)} ${rpad(num(e.incTotal), 19)}`);
+  lines.push("");
+
+  lines.push("--------------------------------------------------------------------------------");
+  lines.push("BETRIEBSAUSGABEN");
+  lines.push("--------------------------------------------------------------------------------");
+  lines.push("Kz.  Bezeichnung                                                Betrag (EUR)");
+  lines.push("---- ---------------------------------------------------- -------------------");
+  if (!e.out.length) {
+    lines.push(`     Keine Betriebsausgaben in ${y}`);
+  } else {
+    e.out.forEach(row => {
+      lines.push(`${pad(row.kz, 4)} ${pad(row.label, 52)} ${rpad(num(row.amount), 19)}`);
+    });
+  }
+  lines.push("---- ---------------------------------------------------- -------------------");
+  lines.push(`${pad("199", 4)} ${pad("Summe Betriebsausgaben", 52)} ${rpad(num(e.outTotal), 19)}`);
+  lines.push("");
+
+  lines.push("================================================================================");
+  const profitLabel = e.profit >= 0 ? "STEUERLICHER GEWINN" : "STEUERLICHER VERLUST";
+  lines.push(`${pad(profitLabel, 57)} ${rpad(num(e.profit), 22)} EUR`);
+  lines.push("================================================================================");
+  lines.push("");
+
+  if (e.nonDeductible) {
+    lines.push("Hinweis Bewirtungskosten:");
+    lines.push(`Nicht abziehbarer Anteil (30 %, Kz. 165): ${eur(e.nonDeductible)}`);
+    lines.push("(In den Betriebsausgaben oben ist nur der abzugsfähige 70 %-Anteil enthalten.)");
+    lines.push("");
+  }
+
+  if (!s.kleinunternehmer) {
+    lines.push(`Umsatzsteuer-Übersicht ${y}:`);
+    lines.push(`Vereinnahmte USt:                         ${rpad(num(e.ust), 15)} EUR`);
+    lines.push(`- Abziehbare Vorsteuer:                   ${rpad(num(e.vorsteuer), 15)} EUR`);
+    const diff = e.ust - e.vorsteuer;
+    lines.push(`= ${diff >= 0 ? "Zahllast" : "Erstattungsanspruch"}:                    ${rpad(num(Math.abs(diff)), 15)} EUR`);
+    lines.push("");
+  }
+
+  lines.push("Hinweis zu Abschreibungen (Kz. 130):");
+  lines.push(`AfA aus dem Anlagenverzeichnis: ${eur(e.afaFromAssets || 0)}`);
+  lines.push(`Details entnehmen Sie der beiliegenden Datei 'Anlagenverzeichnis-${y}.csv'.`);
+  lines.push("");
+  lines.push("Ende des Berichts.");
+
+  return lines.join("\r\n");
+}
+
+function generateReadmeReport(y, stats = {}) {
+  const s = sett(); const e = euer(y);
+  const rpad = (str, len) => String(str ?? "").padStart(len);
+
+  const lines = [
+    "================================================================================",
+    `GoBD-JAHRESABSCHLUSS & ARCHIV-EXPORT – GESCHÄFTSJAHR ${y}`,
+    "Erstellt mit Kontobuch (GoBD § 147 AO konform)",
+    "================================================================================",
+    "",
+    `Unternehmen:        ${s.name || "–"}`,
+    `Inhaber:in:         ${s.owner || "–"}`,
+    `Anschrift:          ${[s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") || "–"}`,
+    `Steuernummer:       ${s.taxNo || "–"}`,
+    `USt-IdNr.:          ${s.vatId || "–"}`,
+    `Besteuerungsart:    ${s.kleinunternehmer ? "Kleinunternehmer (§ 19 UStG – keine USt-Pflicht)" : "Regelbesteuerung"}`,
+    `Abschluss-Datum:    ${fDate(today())} (${new Date().toISOString()})`,
+    "",
+    "--------------------------------------------------------------------------------",
+    `STEUERLICHE KENNZAHLEN ${y} (EÜR nach § 4 Abs. 3 EStG)`,
+    "--------------------------------------------------------------------------------",
+    `Betriebseinnahmen (Kz. 159):            ${rpad(eur(e.incTotal), 18)}`,
+    `Betriebsausgaben  (Kz. 199):            ${rpad(eur(e.outTotal), 18)}`,
+    "--------------------------------------------------------------------------------",
+    `${e.profit >= 0 ? "Steuerlicher Gewinn:" : "Steuerlicher Verlust:"}                   ${rpad(eur(e.profit), 18)}`,
+    "--------------------------------------------------------------------------------",
+    `AfA aus Anlagenverzeichnis (Kz. 130):   ${rpad(eur(e.afaFromAssets || 0), 18)}`
+  ];
+
+  if (e.nonDeductible) {
+    lines.push(`Nicht abziehbare Bewirtungskosten (30%): ${rpad(eur(e.nonDeductible), 18)}`);
+  }
+
+  lines.push(
+    "",
+    "--------------------------------------------------------------------------------",
+    "ARCHIVIERTE BESTÄNDE & STATISTIK",
+    "--------------------------------------------------------------------------------",
+    `- Ausgangsrechnungen:   ${stats.invoicesCount || 0} Dokument(e)`,
+    `- Buchungen (Journal):  ${stats.entriesCount || 0} Buchung(en)`,
+    `- Belege gesichert:     ${stats.receiptsSaved || 0} von ${stats.receiptsTotal || 0} erfassten Belegen`,
+    "",
+    "--------------------------------------------------------------------------------",
+    "INHALTSVERZEICHNIS DIESES ARCHIVS",
+    "--------------------------------------------------------------------------------",
+    `1. README-Abschluss-${y}.txt`,
+    "   Diese Dokumentation und Indexierung des GoBD-Archivs.",
+    "",
+    `2. Journal-${y}.csv`,
+    "   Vollständiges Buchungsjournal des Geschäftsjahres mit ELSTER-Kennzahlen",
+    "   (Semikolon-getrennt, UTF-8 mit BOM).",
+    "",
+    `3. Anlagenverzeichnis-${y}.csv`,
+    "   Verzeichnis der Wirtschaftsgüter des Anlagevermögens gem. Anlage AVEÜR",
+    "   mit Anschaffungskosten, Buchwerten und monatsgenauer AfA.",
+    "",
+    `4. EÜR-Bericht-${y}.txt`,
+    "   Strukturierte steuerliche Auswertung für die Einkommensteuererklärung",
+    "   und Vorlage beim Finanzamt oder Steuerberatung.",
+    "",
+    `5. Datenbestand-${y}.json`,
+    "   Vollständiger maschinenlesbarer Snapshot aller Stammdaten, Kunden,",
+    "   Rechnungen und Buchungen des Geschäftsjahres.",
+    "",
+    "6. Ausgangsrechnungen/",
+    `   Alle in ${y} gestellten bzw. zugeflossenen Rechnungen als PDF-Dokumente`,
+    "   inklusive eingebetteter maschinenlesbarer ZUGFeRD 2.2 / Factur-X XML-Daten",
+    "   (Profil EN 16931).",
+    "",
+    "7. Eingangsbelege/",
+    "   Sämtliche im Original hochgeladenen Belegdateien (PDF, JPG, PNG) zu den",
+    "   Ausgaben und Anlagenzugängen des Geschäftsjahres.",
+    "",
+    "--------------------------------------------------------------------------------",
+    "HINWEISE ZUR AUFBEWAHRUNG (GoBD & § 147 AO)",
+    "--------------------------------------------------------------------------------",
+    "Nach § 147 Abs. 1 und 3 der Abgabenordnung (AO) sind Buchungsbelege und",
+    "Rechnungen für 8 bis 10 Jahre geordnet und unveränderbar aufzubewahren.",
+    "Bewahren Sie diese ZIP-Datei und deren Inhalt an einem sicheren Ort auf",
+    "(z. B. externes verschlüsseltes Backup / Cloud-Speicher).",
+    "",
+    "Ende der Dokumentation."
+  );
+
+  return lines.join("\r\n");
+}
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(data) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ data[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const entries = files.map(f => {
+    const nameBytes = encoder.encode(f.name);
+    let dataBytes;
+    if (typeof f.data === "string") {
+      dataBytes = encoder.encode(f.data);
+    } else if (f.data instanceof Uint8Array) {
+      dataBytes = f.data;
+    } else if (f.data instanceof ArrayBuffer) {
+      dataBytes = new Uint8Array(f.data);
+    } else {
+      dataBytes = new Uint8Array(0);
+    }
+    return { name: f.name, nameBytes, dataBytes, crc: crc32(dataBytes), size: dataBytes.length, offset: 0 };
+  });
+
+  let localTotal = 0;
+  for (const e of entries) localTotal += 30 + e.nameBytes.length + e.size;
+  let cdTotal = 0;
+  for (const e of entries) cdTotal += 46 + e.nameBytes.length;
+  const total = localTotal + cdTotal + 22;
+
+  const out = new Uint8Array(total);
+  const view = new DataView(out.buffer);
+  let pos = 0;
+
+  const d = new Date();
+  const dosTime = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF;
+  const dosDate = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+
+  for (const e of entries) {
+    e.offset = pos;
+    view.setUint32(pos, 0x04034b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 (bit 11)
+    view.setUint16(pos, 0, true); pos += 2;      // Method: 0 (Store)
+    view.setUint16(pos, dosTime, true); pos += 2;
+    view.setUint16(pos, dosDate, true); pos += 2;
+    view.setUint32(pos, e.crc, true); pos += 4;
+    view.setUint32(pos, e.size, true); pos += 4;
+    view.setUint32(pos, e.size, true); pos += 4;
+    view.setUint16(pos, e.nameBytes.length, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    out.set(e.nameBytes, pos); pos += e.nameBytes.length;
+    out.set(e.dataBytes, pos); pos += e.size;
+  }
+
+  const cdOffset = pos;
+  for (const e of entries) {
+    const isDir = e.name.endsWith("/");
+    view.setUint32(pos, 0x02014b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, dosTime, true); pos += 2;
+    view.setUint16(pos, dosDate, true); pos += 2;
+    view.setUint32(pos, e.crc, true); pos += 4;
+    view.setUint32(pos, e.size, true); pos += 4;
+    view.setUint32(pos, e.size, true); pos += 4;
+    view.setUint16(pos, e.nameBytes.length, true); pos += 2; // file name length
+    view.setUint16(pos, 0, true); pos += 2;                  // extra field length
+    view.setUint16(pos, 0, true); pos += 2;                  // file comment length
+    view.setUint16(pos, 0, true); pos += 2;                  // disk number start
+    view.setUint16(pos, 0, true); pos += 2;                  // internal file attributes
+    view.setUint32(pos, isDir ? 0x10 : 0, true); pos += 4;  // external file attributes
+    view.setUint32(pos, e.offset, true); pos += 4;          // relative offset of local header
+    out.set(e.nameBytes, pos); pos += e.nameBytes.length;
+  }
+  const cdSize = pos - cdOffset;
+
+  view.setUint32(pos, 0x06054b50, true); pos += 4;
+  view.setUint16(pos, 0, true); pos += 2;
+  view.setUint16(pos, 0, true); pos += 2;
+  view.setUint16(pos, entries.length, true); pos += 2;
+  view.setUint16(pos, entries.length, true); pos += 2;
+  view.setUint32(pos, cdSize, true); pos += 4;
+  view.setUint32(pos, cdOffset, true); pos += 4;
+  view.setUint16(pos, 0, true); pos += 2;
+
+  return out;
+}
+
+async function fetchBlob(receiptId) {
+  if (!receiptId) return null;
+  try {
+    const res = await fetch("/_blob/" + encodeURIComponent(receiptId));
+    if (res.ok) {
+      const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+      const ext = ct.includes("pdf") ? ".pdf" : ct.includes("png") ? ".png" : ct.includes("jpeg") || ct.includes("jpg") ? ".jpg" : ct.includes("webp") ? ".webp" : "";
+      const ab = await res.arrayBuffer();
+      return { bytes: new Uint8Array(ab), ext };
+    }
+  } catch (err) {
+    console.warn("Beleg-Abruf fehlgeschlagen:", receiptId, err);
+  }
+  return null;
+}
+
+async function exportYearZip(y = year) {
+  if (!downloads) {
+    toast("Download ist hier nicht verfügbar.", true);
+    return;
+  }
+  toast(`Jahresabschluss ${y} wird erstellt …`);
+
+  try {
+    const s = sett();
+    const files = [];
+    const usedZipNames = new Set();
+    const sanitize = n => String(n || "").replace(/[\/\\:*?"<>|]/g, "_").trim();
+
+    function addFile(path, data) {
+      let uniquePath = path;
+      if (usedZipNames.has(uniquePath)) {
+        const parts = path.split(".");
+        const ext = parts.length > 1 ? "." + parts.pop() : "";
+        const base = parts.join(".");
+        let c = 2;
+        while (usedZipNames.has(`${base}_${c}${ext}`)) c++;
+        uniquePath = `${base}_${c}${ext}`;
+      }
+      usedZipNames.add(uniquePath);
+      files.push({ name: uniquePath, data });
+      return uniquePath;
+    }
+
+    // 1. Journal CSV
+    files.push({ name: `Journal-${y}.csv`, data: generateJournalCsv(y) });
+
+    // 2. Anlagenverzeichnis CSV
+    files.push({ name: `Anlagenverzeichnis-${y}.csv`, data: generateAssetsCsv(y) });
+
+    // 3. EÜR-Bericht TXT
+    files.push({ name: `EÜR-Bericht-${y}.txt`, data: generateEuerReport(y) });
+
+    // Filter year records
+    const yearInvoices = S.invoices.filter(i => i.number && (yOf(i.date) === y || yOf(i.paidDate) === y));
+    const yearEntries = S.entries.filter(ent => yOf(ent.date) === y);
+    const yearAssets = (S.fixedAssets || []).filter(a => {
+      const c = calcAsset(a, y);
+      return (c && (c.additions > 0 || c.afa > 0)) || yOf(a.date) === y;
+    });
+
+    // 4. Datenbestand JSON
+    const snapshot = {
+      app: "Kontobuch",
+      version: 1,
+      year: y,
+      exportedAt: new Date().toISOString(),
+      settings: s,
+      customers: S.customers,
+      invoices: yearInvoices,
+      entries: yearEntries,
+      fixedAssets: S.fixedAssets || []
+    };
+    files.push({ name: `Datenbestand-${y}.json`, data: JSON.stringify(snapshot, null, 2) });
+
+    // 5. Ausgangsrechnungen als ZUGFeRD 2.2 PDFs
+    if (!yearInvoices.length) {
+      files.push({ name: "Ausgangsrechnungen/", data: "" });
+    } else {
+      for (const inv of yearInvoices) {
+        try {
+          const pdfBytes = new Uint8Array(invoicePdf(inv, "arraybuffer"));
+          const prefix = inv.storno ? "Stornorechnung" : "Rechnung";
+          const fname = sanitize(`${prefix}_${inv.number}.pdf`);
+          addFile(`Ausgangsrechnungen/${fname}`, pdfBytes);
+        } catch (err) {
+          console.warn(`Fehler bei PDF-Erstellung für ${inv.number}:`, err);
+        }
+      }
+    }
+
+    // 6. Eingangsbelege herunterladen
+    let fetchedReceiptsCount = 0;
+    const receiptsToFetch = [];
+
+    for (const ent of yearEntries) {
+      if (ent.receiptId) {
+        receiptsToFetch.push({
+          id: ent.receiptId,
+          suggestedName: ent.receiptName || `${ent.date || y}_${sanitize(ent.party || "Beleg")}.pdf`
+        });
+      }
+    }
+    for (const asset of yearAssets) {
+      if (asset.receiptId) {
+        receiptsToFetch.push({
+          id: asset.receiptId,
+          suggestedName: asset.receiptName || `Anlage_${asset.date || y}_${sanitize(asset.name || "Kaufbeleg")}.pdf`
+        });
+      }
+    }
+
+    if (!receiptsToFetch.length) {
+      files.push({ name: "Eingangsbelege/", data: "" });
+    } else {
+      for (const item of receiptsToFetch) {
+        const blobRes = await fetchBlob(item.id);
+        if (blobRes) {
+          let name = item.suggestedName;
+          if (!/\.[a-zA-Z0-9]{3,4}$/.test(name) && blobRes.ext) {
+            name += blobRes.ext;
+          }
+          const clean = sanitize(name);
+          addFile(`Eingangsbelege/${clean}`, blobRes.bytes);
+          fetchedReceiptsCount++;
+        }
+      }
+    }
+
+    // 7. README-Abschluss-[JAHR].txt
+    const readme = generateReadmeReport(y, {
+      invoicesCount: yearInvoices.length,
+      entriesCount: yearEntries.length,
+      receiptsTotal: receiptsToFetch.length,
+      receiptsSaved: fetchedReceiptsCount
+    });
+    files.unshift({ name: `README-Abschluss-${y}.txt`, data: readme });
+
+    // Pack into ZIP
+    const zipBytes = createZip(files);
+    const blob = new Blob([zipBytes], { type: "application/zip" });
+    const filename = `Kontobuch-Abschluss-${y}.zip`;
+
+    await downloads.save({ filename, data: blob });
+    toast(`Jahresabschluss ${y} (ZIP) erfolgreich gespeichert`);
+  } catch (err) {
+    if (err?.code !== "declined") {
+      console.error(err);
+      toast("Der Jahresabschluss konnte nicht gespeichert werden.", true);
+    }
+  }
+}
+
 async function importJson(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { toast("Die Datei ist kein gültiges Kontobuch-Backup.", true); return; }
@@ -1973,6 +2404,7 @@ const ACT = {
   "inv-save-draft": () => saveDraft(),
   "export-json": () => exportJson(),
   "export-csv": () => exportCsv(),
+  "export-year-zip": () => exportYearZip(year),
 };
 function syncItems() {
   document.querySelectorAll("#items .item-row[data-i]").forEach(row => {
