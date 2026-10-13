@@ -5,9 +5,9 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer };")(
+const app = new Function("localStorage", "location", js + "; return { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml };")(
   { getItem: () => null, setItem() {} }, { hash: "" });
-const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer } = app;
+const { S, nextInvoice, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, receiptPreviewHtml } = app;
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
 S.settings = { invoicePrefix: "RE-2026-", nextInvoiceNo: 41 };
@@ -72,5 +72,18 @@ const e = euer(2026);
 assert.deepStrictEqual(e.inc.map(l => [l.kz, l.amount]), [["111", 230]]);
 assert.deepStrictEqual(e.out.map(l => [l.kz, l.amount]), [["130", 188.26], ["183", 15.5], ["175", 70]]);
 assert.deepStrictEqual([e.nonDeductible, e.incTotal, e.outTotal, e.profit], [30, 230, 273.76, -43.76]);
+
+// Beleg-Vorschau HTML
+const emptyHtml = receiptPreviewHtml(null, null);
+assert.ok(emptyHtml.includes("Noch kein Beleg ausgewählt"));
+
+const pdfHtml = receiptPreviewHtml("/_blob/abc123pdf", "rechnung.pdf");
+assert.ok(pdfHtml.includes("<iframe class=\"preview-frame\""));
+assert.ok(pdfHtml.includes("rechnung.pdf"));
+assert.ok(pdfHtml.includes("In neuem Tab öffnen ↗"));
+
+const imgHtml = receiptPreviewHtml("/_blob/img456", "beleg.jpg");
+assert.ok(imgHtml.includes("<img class=\"preview-img\""));
+assert.ok(imgHtml.includes("beleg.jpg"));
 
 console.log("OK");
