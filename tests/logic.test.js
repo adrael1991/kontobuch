@@ -5,9 +5,30 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const app = new Function("localStorage", "location", "window", js + "; return { S, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport };")(
-  { getItem: () => null, setItem() {} }, { hash: "" }, { jspdf: null });
-const { S, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport } = app;
+const mockPdfCalls = { addImage: [], text: [], addPage: 0 };
+class MockJsPDF {
+  constructor() {
+    this.calls = mockPdfCalls;
+    this.internal = { events: { subscribe() {} } };
+  }
+  addImage(...args) { mockPdfCalls.addImage.push(args); }
+  getImageProperties(data) { return { width: 200, height: 100 }; }
+  setTextColor() {}
+  setFontSize() {}
+  setDrawColor() {}
+  setFont() {}
+  line() {}
+  text(...args) { mockPdfCalls.text.push(args); }
+  splitTextToSize(text) { return String(text || "").split("\n"); }
+  addPage() { mockPdfCalls.addPage++; }
+  output(type) { return Buffer.from("%PDF-mock"); }
+}
+const mockWindow = { jspdf: { jsPDF: MockJsPDF } };
+
+const app = new Function("localStorage", "location", "window", js + "; return { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf };")(
+  { getItem: () => null, setItem() {} }, { hash: "" }, mockWindow);
+const { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf } = app;
+
 
 
 // Fester Präfix: Nummer läuft weiter, belegte Nummern werden übersprungen.
@@ -270,5 +291,118 @@ assert(reminderHtml.includes("export-year-zip-explicit"), "Reminder should have 
 S.settings = { dismissedReminders: { [prevY]: true } };
 assert.strictEqual(yearCloseReminder(), "");
 
+// Erscheinungsbild: Default-Einstellungen
+S.settings = {};
+const defSett = sett();
+assert.strictEqual(defSett.hideTextHeader, false);
+assert.strictEqual(defSett.hideTextFooter, false);
+assert.strictEqual(defSett.logoData, "");
+assert.strictEqual(defSett.stationeryData, "");
+
+// Test-Rechnung und Test-Angebot
+const testInv = {
+  number: "RE-2026-001",
+  date: "2026-04-10",
+  dueDate: "2026-04-24",
+  recipient: "Max Mustermann\nMusterstr. 5\n12345 Berlin",
+  items: [{ desc: "Design Leistung", qty: 2, price: 100, vat: 19, unit: "Std." }],
+  ku: false,
+  seller: {
+    name: "Creative Schmitti",
+    owner: "Kevin Schmitt",
+    street: "Designweg 1",
+    zip: "63739",
+    city: "Aschaffenburg",
+    email: "info@creative-schmitti.de",
+    phone: "012345",
+    web: "creative-schmitti.de",
+    iban: "DE1234567890",
+    bic: "GENODE",
+    bank: "Volksbank",
+    taxNo: "123/456",
+    vatId: "DE987654321"
+  }
+};
+
+const testQuote = {
+  number: "ANG-2026-001",
+  date: "2026-04-10",
+  validUntil: "2026-05-10",
+  recipient: "Max Mustermann\nMusterstr. 5\n12345 Berlin",
+  items: [{ desc: "Angebotene Leistung", qty: 1, price: 250, vat: 19, unit: "Pauschal" }],
+  ku: false,
+  seller: testInv.seller
+};
+
+// 1. Standard-Vorschau ohne Logo und ohne Briefpapier
+const standardHtml = paperHtml(testInv);
+assert(standardHtml.includes("<b>Creative Schmitti</b>"), "Default preview includes seller company name");
+assert(standardHtml.includes("IBAN DE1234567890"), "Default preview includes bank info in footer");
+assert(!standardHtml.includes("paper-logo"), "Default preview has no logo img");
+assert(!standardHtml.includes("background-image"), "Default preview has no background-image");
+
+// 2. Vorschau mit Logo
+const withLogoInv = { ...testInv, seller: { ...testInv.seller, logoData: "data:image/png;base64,samplelogo123" } };
+const logoHtml = paperHtml(withLogoInv);
+assert(logoHtml.includes('<img class="paper-logo" src="data:image/png;base64,samplelogo123"'), "Logo preview contains logo img tag");
+assert(logoHtml.includes("<b>Creative Schmitti</b>"), "Logo preview preserves header text when not hidden");
+
+// 3. Vorschau mit Briefpapier (DIN A4 Hintergrund)
+const withStationeryInv = { ...testInv, seller: { ...testInv.seller, stationeryData: "data:image/jpeg;base64,samplebg456" } };
+const bgHtml = paperHtml(withStationeryInv);
+assert(bgHtml.includes("background-image: url('data:image/jpeg;base64,samplebg456')"), "Paper preview contains stationery background");
+
+// 4. Vorschau mit ausgeblendeter Standard-Kopfzeile
+const hideHeaderInv = { ...testInv, seller: { ...testInv.seller, hideTextHeader: true, logoData: "data:image/png;base64,samplelogo123" } };
+const hideHeaderHtml = paperHtml(hideHeaderInv);
+assert(!hideHeaderHtml.includes("<b>Creative Schmitti</b>"), "Header text suppressed when hideTextHeader is true");
+assert(hideHeaderHtml.includes("paper-logo"), "Logo remains visible when hideTextHeader is true");
+
+// 5. Vorschau mit ausgeblendeter Standard-Fußzeile
+const hideFooterInv = { ...testInv, seller: { ...testInv.seller, hideTextFooter: true } };
+const hideFooterHtml = paperHtml(hideFooterInv);
+assert(!hideFooterHtml.includes("IBAN DE1234567890"), "Footer bank details suppressed when hideTextFooter is true");
+assert(!hideFooterHtml.includes('class="foot"'), "Foot element completely omitted when hideTextFooter is true");
+
+// 6. Angebots-Vorschau (paperQuoteHtml)
+const quoteHtml = paperQuoteHtml({ ...testQuote, seller: { ...testQuote.seller, logoData: "data:image/png;base64,quoteLogo" } });
+assert(quoteHtml.includes("paper-logo"), "Quote preview supports logo");
+assert(quoteHtml.includes("Angebotsnr."), "Quote preview has quote header");
+
+// 7. PDF-Generierung (invoicePdf & quotePdf)
+mockPdfCalls.addImage = [];
+invoicePdf({
+  ...testInv,
+  seller: {
+    ...testInv.seller,
+    logoData: "data:image/png;base64,logoData",
+    stationeryData: "data:image/jpeg;base64,bgData",
+    hideTextHeader: true,
+    hideTextFooter: true
+  }
+});
+// Verify stationery was added at 0, 0, 210, 297
+const bgCall = mockPdfCalls.addImage.find(call => call[0] === "data:image/jpeg;base64,bgData");
+assert.ok(bgCall, "doc.addImage was called for stationery background");
+assert.deepStrictEqual([bgCall[1], bgCall[2], bgCall[3], bgCall[4]], [0, 0, 210, 297]);
+
+// Verify logo was added with aspect ratio (width 200, height 100 -> ratio 2 -> maxW 50, h 25 > maxH 22 -> h 22, w 44)
+const logoCall = mockPdfCalls.addImage.find(call => call[0] === "data:image/png;base64,logoData");
+assert.ok(logoCall, "doc.addImage was called for logo");
+assert.strictEqual(logoCall[3], 44); // width: maxH * 2 = 22 * 2 = 44 mm
+assert.strictEqual(logoCall[4], 22); // height: maxH = 22 mm
+
+// 8. Quote PDF
+mockPdfCalls.addImage = [];
+quotePdf({
+  ...testQuote,
+  seller: {
+    ...testQuote.seller,
+    stationeryData: "data:image/jpeg;base64,quoteBg"
+  }
+});
+assert.ok(mockPdfCalls.addImage.some(call => call[0] === "data:image/jpeg;base64,quoteBg"), "quotePdf draws stationery");
+
 console.log("OK");
+
 
