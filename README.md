@@ -66,6 +66,12 @@ Selbst gehostete, schlanke Buchhaltung für Kleinunternehmer (§ 19 UStG) und Re
 - Automatische fortlaufende Kundennummern.
 - CSV-Import mit automatischer Spaltenerkennung (u. a. für Daten aus Papierkram).
 
+### 8. Briefpapier & Logo-Personalisierung
+- **Firmenlogo-Upload**: PNG (mit Transparenz), JPG oder WebP, wird oben rechts nach DIN 5008 mit automatischer proportionaler Skalierung (max. 50 × 22 mm) auf Rechnungen und Angeboten platziert.
+- **Briefpapier-Hintergrund (DIN A4)**: Hochladen einer ganzseitigen A4-Grafik (z. B. aus Affinity Designer, 210 × 297 mm als PNG oder JPG). Wird auf jeder Seite im PDF und in der HTML-Vorschau als Unterlage gedruckt.
+- **Kopf- und Fußzeilen-Steuerung**: Flexible Checkboxen zum Ausblenden der standardmäßigen Textkopfzeile bzw. Textfußzeile, um doppelte Aufdrucke zu verhindern, falls das eigene Briefpapier diese bereits enthält.
+- **Direkte Layout-Vorschau**: Per Klick in den Einstellungen lässt sich das fertige Rechnungsbild sofort begutachten.
+
 ---
 
 ## Installation im Proxmox-LXC

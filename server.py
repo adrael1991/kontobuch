@@ -26,7 +26,7 @@ FILE_TYPES = {
 }
 EXT_TYPES = {v: k for k, v in FILE_TYPES.items()}
 STATIC = {"shim.js": "text/javascript", "jspdf.umd.min.js": "text/javascript"}
-MAX_JSON = 1 << 20
+MAX_JSON = 10 << 20
 MAX_FILE = 20 << 20
 
 HEAD = """<!doctype html><html lang="de"><head><meta charset="utf-8">

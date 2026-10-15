@@ -365,7 +365,10 @@ const DEF = { kleinunternehmer: true, invoicePrefix: "RE-{JAHR}-", nextInvoiceNo
   quoteIntro: "Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:",
   quoteClosing: "Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.",
   intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
-  closing: "Mit freundlichen Grüßen" };
+  closing: "Mit freundlichen Grüßen",
+  hideTextHeader: false, hideTextFooter: false,
+  logoData: "", logoName: "", logoFileId: null,
+  stationeryData: "", stationeryName: "", stationeryFileId: null };
 const sett = () => ({ ...DEF, ...S.settings });
 const allReady = () => ["settings", "customers", "quotes", "invoices", "entries", "fixedAssets"].every(k => S.ready[k]);
 
@@ -994,6 +997,59 @@ function vSettings() {
     <fieldset><legend>Bankverbindung</legend><div class="fields">
       ${fld("bank", "Bank")}${fld("bic", "BIC")}${fld("iban", "IBAN", "full")}
     </div></fieldset>
+    <fieldset><legend>Erscheinungsbild & Briefpapier</legend><div class="fields">
+      <div class="f">
+        <label for="s-logo-file">Firmenlogo</label>
+        <div id="s-logo-wrap">
+          ${s.logoData ? `
+            <div class="logo-preview-box" style="display:flex; align-items:center; gap:12px; background:var(--paper); padding:8px 12px; border:1px solid var(--rule); border-radius:var(--r); margin-bottom:8px;">
+              <img id="s-logo-img" src="${esc(s.logoData)}" alt="Logo-Vorschau" style="max-height:46px; max-width:140px; object-fit:contain; background:#fff; padding:3px; border:1px solid var(--rule); border-radius:3px;">
+              <div style="flex:1; min-width:0;">
+                <div class="small" style="font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${esc(s.logoName || "Firmenlogo")}</div>
+                <button type="button" class="btn sm danger" data-act="remove-logo" style="margin-top:4px;">Logo entfernen</button>
+              </div>
+            </div>` : `
+            <div id="s-logo-empty" class="small muted" style="padding:4px 0 8px;">Noch kein Logo hinterlegt.</div>
+          `}
+          <input type="file" id="s-logo-file" accept="image/png,image/jpeg,image/webp">
+          <input type="hidden" id="s-logoData" name="logoData" value="${esc(s.logoData || "")}">
+          <input type="hidden" id="s-logoName" name="logoName" value="${esc(s.logoName || "")}">
+          <input type="hidden" id="s-logoFileId" name="logoFileId" value="${esc(s.logoFileId || "")}">
+          <span class="hint">Wird oben rechts auf Rechnungen & Angeboten platziert (DIN 5008, max. 50 × 22 mm). PNG, JPG oder WebP.</span>
+        </div>
+      </div>
+      <div class="f">
+        <label for="s-stationery-file">Briefpapier (DIN A4 Hintergrund)</label>
+        <div id="s-stationery-wrap">
+          ${s.stationeryData ? `
+            <div class="stationery-preview-box" style="display:flex; align-items:center; gap:12px; background:var(--paper); padding:8px 12px; border:1px solid var(--rule); border-radius:var(--r); margin-bottom:8px;">
+              <img id="s-stationery-img" src="${esc(s.stationeryData)}" alt="Briefpapier-Vorschau" style="max-height:60px; aspect-ratio:210/297; object-fit:cover; border:1px solid var(--rule); border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+              <div style="flex:1; min-width:0;">
+                <div class="small" style="font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${esc(s.stationeryName || "Briefbogen A4")}</div>
+                <button type="button" class="btn sm danger" data-act="remove-stationery" style="margin-top:4px;">Briefpapier entfernen</button>
+              </div>
+            </div>` : `
+            <div id="s-stationery-empty" class="small muted" style="padding:4px 0 8px;">Noch kein Briefpapier hinterlegt.</div>
+          `}
+          <input type="file" id="s-stationery-file" accept="image/png,image/jpeg,image/webp">
+          <input type="hidden" id="s-stationeryData" name="stationeryData" value="${esc(s.stationeryData || "")}">
+          <input type="hidden" id="s-stationeryName" name="stationeryName" value="${esc(s.stationeryName || "")}">
+          <input type="hidden" id="s-stationeryFileId" name="stationeryFileId" value="${esc(s.stationeryFileId || "")}">
+          <span class="hint">Ganzseitige Grafik als A4-Hintergrund für jede Seite (210 × 297 mm, z. B. aus Affinity Designer als PNG/JPG exportiert).</span>
+        </div>
+      </div>
+      <div class="f full">
+        <label class="check"><input type="checkbox" id="s-hide-header" name="hideTextHeader" ${s.hideTextHeader ? "checked" : ""}>
+          <span>Standard-Kopfzeile auf Rechnungen & Angeboten ausblenden<span class="sub">Empfohlen, wenn dein Briefpapier oder Logo bereits Absender- und Kontaktdaten enthält.</span></span></label>
+      </div>
+      <div class="f full">
+        <label class="check"><input type="checkbox" id="s-hide-footer" name="hideTextFooter" ${s.hideTextFooter ? "checked" : ""}>
+          <span>Standard-Fußzeile auf Rechnungen & Angeboten ausblenden<span class="sub">Empfohlen, wenn Bankverbindung, Steuernummer und Firmendaten bereits im Briefpapier-Fuß stehen.</span></span></label>
+      </div>
+      <div class="f full" style="margin-top:4px;">
+        <button type="button" class="btn sm" data-act="preview-sample-invoice">Layout-Vorschau ansehen ↗</button>
+      </div>
+    </div></fieldset>
     <fieldset><legend>Rechnungen</legend><div class="fields">
       ${fld("invoicePrefix", "Präfix der Rechnungsnummer", "s2")}${fld("nextInvoiceNo", "Nächste laufende Nummer", "s2", 'type="number" min="1" step="1"')}${fld("paymentDays", "Zahlungsziel (Tage)", "s2", 'type="number" min="0" step="1"')}
       <div class="f full"><span class="hint">Die nächste Rechnung bekommt die Nummer <b class="mono">${esc(nextInvoice().number)}</b>. <span class="mono">{JAHR}</span> im Präfix wird durch das Jahr ersetzt, die Nummern beginnen dann jedes Jahr wieder bei 1. Wenn du von einem anderen Programm wechselst, setze hier die Nummer fort, damit die Reihe lückenlos bleibt.</span></div>
@@ -1458,12 +1514,76 @@ function openInvoice(id) {
     <div class="table-wrap">${paperHtml(inv)}</div>
     <p class="small muted">Festgeschriebene Rechnungen lassen sich nicht mehr ändern. Bei Fehlern stornieren und neu schreiben.</p>`, { wide: true });
 }
+function readImageAsDataUrl(file, maxDimension = 2400) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("Keine Datei angegeben"));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (typeof Image === "undefined") return resolve(dataUrl);
+      const img = new Image();
+      img.onerror = () => reject(new Error("Bild konnte nicht geladen werden"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (!width || !height) return resolve(dataUrl);
+        if (width <= maxDimension && height <= maxDimension && file.size < 600000) {
+          return resolve(dataUrl);
+        }
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const isPng = file.type === "image/png" || file.name?.toLowerCase().endsWith(".png");
+        const mime = isPng ? "image/png" : "image/jpeg";
+        const resUrl = canvas.toDataURL(mime, isPng ? undefined : 0.88);
+        resolve(resUrl);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function paperHeaderHtml(s) {
+  if (s.hideTextHeader && !s.logoData) {
+    return `<div class="ph" style="min-height:36px"></div>`;
+  }
+  const logoImg = s.logoData ? `<img class="paper-logo" src="${esc(s.logoData)}" alt="Logo" style="max-height:48px; max-width:180px; object-fit:contain;">` : "";
+  const left = s.hideTextHeader ? "" : `<b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div>`;
+  const contactText = s.hideTextHeader ? "" : esc([s.email, s.phone, s.web].filter(Boolean).join("\n"));
+  const right = `
+    <div class="addr small" style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+      ${logoImg}
+      ${contactText ? `<div>${contactText}</div>` : ""}
+    </div>`;
+  return `<div class="ph" style="align-items:flex-start"><div>${left}</div>${right}</div>`;
+}
+
+function paperFooterHtml(s) {
+  if (s.hideTextFooter) return "";
+  return `<div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
+    ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>`;
+}
+
 function paperHtml(inv) {
   const s = inv.seller || sett(); const t = calcInv(inv);
   const senderLine = [s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
-  return `<div class="paper">
-    <div class="ph"><div><b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div></div>
-      <div class="addr small" style="text-align:right">${esc([s.email, s.phone, s.web].filter(Boolean).join("\n"))}</div></div>
+  const paperStyle = s.stationeryData
+    ? `background-image: url('${esc(s.stationeryData)}'); background-size: 100% 100%; background-repeat: no-repeat; background-position: top center;`
+    : "";
+  return `<div class="paper"${paperStyle ? ` style="${paperStyle}"` : ""}>
+    ${paperHeaderHtml(s)}
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(inv.recipient)}</div></div>
       <div class="meta"><span>Rechnungsnr.</span><span class="mono">${esc(inv.number)}</span>${inv.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(inv.customerNo)}</span>` : ""}<span>Rechnungsdatum</span><span>${fDate(inv.date)}</span>
       <span>Leistungsdatum</span><span>${esc(inv.serviceDate || fDate(inv.date))}</span>${inv.storno ? "" : `<span>Fällig bis</span><span>${fDate(inv.dueDate)}</span>`}<span>E-Rechnung</span><span class="mono small">ZUGFeRD / EN 16931</span></div></div>
@@ -1476,8 +1596,7 @@ function paperHtml(inv) {
     <div>${inv.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
       ${inv.storno ? "" : `<p>Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto` : ""} unter Angabe der Rechnungsnummer.</p>`}
       ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}<p class="sub" style="margin-top:8px">E-Rechnung nach EN 16931. Die maschinenlesbare XML-Datei (Factur-X) ist im PDF eingebettet.</p>${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(s.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
-    <div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
-      ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>
+    ${paperFooterHtml(s)}
   </div>`;
 }
 /* ---------- ZUGFeRD 2.2 / Factur-X (EN 16931) ---------- */
@@ -1954,7 +2073,39 @@ function invoicePdf(inv, outputType = "blob") {
 
   const L = 25, R = 190; let y;
   const gray = () => doc.setTextColor(110); const black = () => doc.setTextColor(20);
+
+  const drawStationery = () => {
+    if (s.stationeryData) {
+      try {
+        doc.addImage(s.stationeryData, 0, 0, 210, 297);
+      } catch (err) {
+        console.warn("Briefpapier konnte nicht eingefügt werden:", err);
+      }
+    }
+  };
+
+  const drawLogo = () => {
+    if (!s.logoData) return null;
+    try {
+      const props = doc.getImageProperties(s.logoData);
+      const maxW = 50, maxH = 22;
+      const ratio = (props.width || 1) / (props.height || 1);
+      let w = maxW, h = maxW / ratio;
+      if (h > maxH) { h = maxH; w = maxH * ratio; }
+      const x = R - w;
+      const yPos = 12 + (maxH - h) / 2;
+      doc.addImage(s.logoData, x, yPos, w, h);
+      return { w, h, x, y: yPos };
+    } catch (err) {
+      console.warn("Logo konnte nicht eingefügt werden:", err);
+      return null;
+    }
+  };
+
+  drawStationery();
+
   const footer = () => {
+    if (s.hideTextFooter) return;
     doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
     const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
     const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
@@ -1963,9 +2114,17 @@ function invoicePdf(inv, outputType = "blob") {
     black();
   };
   // Kopf
-  doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
-  doc.text([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean), R, 16, { align: "right" });
+  const logoInfo = drawLogo();
+  if (!s.hideTextHeader) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
+    const contactLines = [s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean);
+    if (logoInfo) {
+      doc.text(contactLines, R, Math.max(16, logoInfo.y + logoInfo.h + 3), { align: "right" });
+    } else {
+      doc.text(contactLines, R, 16, { align: "right" });
+    }
+  }
   // Anschriftfeld nach DIN 5008
   doc.setFontSize(7); doc.text([s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · "), L, 50);
   doc.setDrawColor(170); doc.line(L, 51.2, L + 85, 51.2);
@@ -1993,7 +2152,7 @@ function invoicePdf(inv, outputType = "blob") {
   head();
   inv.items.forEach((it, i) => {
     const lines = doc.splitTextToSize(it.desc || "", descW);
-    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); y = 25; head(); }
+    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); drawStationery(); y = 25; head(); }
     doc.text(String(i + 1), cols.pos, y); doc.text(lines, cols.desc, y);
     doc.text(`${String(it.qty).replace(".", ",")} ${it.unit || ""}`.trim(), cols.qty, y, { align: "right" });
     doc.text(eur(it.price), cols.price, y, { align: "right" }); if (!inv.ku) doc.text(`${it.vat} %`, cols.vat, y, { align: "right" });
@@ -2001,7 +2160,7 @@ function invoicePdf(inv, outputType = "blob") {
     y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
   });
   // Summen
-  if (y > 235) { footer(); doc.addPage(); y = 25; }
+  if (y > 235) { footer(); doc.addPage(); drawStationery(); y = 25; }
   y += 2; const lx = 125;
   if (!inv.ku) {
     doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
@@ -2015,8 +2174,8 @@ function invoicePdf(inv, outputType = "blob") {
   if (inv.ku) tail.push("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.");
   if (!inv.storno) tail.push(`Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? " auf das unten genannte Konto" : ""} unter Angabe der Rechnungsnummer ${inv.number}.`);
   if (inv.notes) tail.push(inv.notes);
-  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
-  if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); }
+  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
+  if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
   footer();
   return doc.output(outputType);
 }
@@ -2254,9 +2413,11 @@ function openQuote(id) {
 function paperQuoteHtml(q) {
   const s = q.seller || sett(); const t = calcInv(q);
   const senderLine = [s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
-  return `<div class="paper">
-    <div class="ph"><div><b>${esc(s.name)}</b><div class="addr small">${esc([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join("\n"))}</div></div>
-      <div class="addr small" style="text-align:right">${esc([s.email, s.phone, s.web].filter(Boolean).join("\n"))}</div></div>
+  const paperStyle = s.stationeryData
+    ? `background-image: url('${esc(s.stationeryData)}'); background-size: 100% 100%; background-repeat: no-repeat; background-position: top center;`
+    : "";
+  return `<div class="paper"${paperStyle ? ` style="${paperStyle}"` : ""}>
+    ${paperHeaderHtml(s)}
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(q.recipient)}</div></div>
       <div class="meta"><span>Angebotsnr.</span><span class="mono">${esc(q.number)}</span>${q.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(q.customerNo)}</span>` : ""}<span>Angebotsdatum</span><span>${fDate(q.date)}</span>
       <span>Gültig bis</span><span>${fDate(q.validUntil)}</span></div></div>
@@ -2270,8 +2431,7 @@ function paperQuoteHtml(q) {
       ${q.validUntil ? `<p>Dieses Angebot ist freibleibend gültig bis zum ${fDate(q.validUntil)}.</p>` : ""}
       ${q.notes ? `<p style="margin-top:8px">${esc(q.notes)}</p>` : ""}
       ${q.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(q.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
-    <div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
-      ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>
+    ${paperFooterHtml(s)}
   </div>`;
 }
 
@@ -2282,7 +2442,39 @@ function quotePdf(q, outputType = "blob") {
 
   const L = 25, R = 190; let y;
   const gray = () => doc.setTextColor(110); const black = () => doc.setTextColor(20);
+
+  const drawStationery = () => {
+    if (s.stationeryData) {
+      try {
+        doc.addImage(s.stationeryData, 0, 0, 210, 297);
+      } catch (err) {
+        console.warn("Briefpapier konnte nicht eingefügt werden:", err);
+      }
+    }
+  };
+
+  const drawLogo = () => {
+    if (!s.logoData) return null;
+    try {
+      const props = doc.getImageProperties(s.logoData);
+      const maxW = 50, maxH = 22;
+      const ratio = (props.width || 1) / (props.height || 1);
+      let w = maxW, h = maxW / ratio;
+      if (h > maxH) { h = maxH; w = maxH * ratio; }
+      const x = R - w;
+      const yPos = 12 + (maxH - h) / 2;
+      doc.addImage(s.logoData, x, yPos, w, h);
+      return { w, h, x, y: yPos };
+    } catch (err) {
+      console.warn("Logo konnte nicht eingefügt werden:", err);
+      return null;
+    }
+  };
+
+  drawStationery();
+
   const footer = () => {
+    if (s.hideTextFooter) return;
     doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
     const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
     const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
@@ -2291,9 +2483,17 @@ function quotePdf(q, outputType = "blob") {
     black();
   };
   // Kopf
-  doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
-  doc.text([s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean), R, 16, { align: "right" });
+  const logoInfo = drawLogo();
+  if (!s.hideTextHeader) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(15); black(); doc.text(s.name || "", L, 22);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); gray();
+    const contactLines = [s.owner, s.street, [s.zip, s.city].filter(Boolean).join(" "), s.email, s.phone, s.web].filter(Boolean);
+    if (logoInfo) {
+      doc.text(contactLines, R, Math.max(16, logoInfo.y + logoInfo.h + 3), { align: "right" });
+    } else {
+      doc.text(contactLines, R, 16, { align: "right" });
+    }
+  }
   // Anschriftfeld nach DIN 5008
   doc.setFontSize(7); doc.text([s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · "), L, 50);
   doc.setDrawColor(170); doc.line(L, 51.2, L + 85, 51.2);
@@ -2319,7 +2519,7 @@ function quotePdf(q, outputType = "blob") {
   head();
   q.items.forEach((it, i) => {
     const lines = doc.splitTextToSize(it.desc || "", descW);
-    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); y = 25; head(); }
+    if (y + lines.length * 4.4 > 262) { footer(); doc.addPage(); drawStationery(); y = 25; head(); }
     doc.text(String(i + 1), cols.pos, y); doc.text(lines, cols.desc, y);
     doc.text(`${String(it.qty).replace(".", ",")} ${it.unit || ""}`.trim(), cols.qty, y, { align: "right" });
     doc.text(eur(it.price), cols.price, y, { align: "right" }); if (!q.ku) doc.text(`${it.vat} %`, cols.vat, y, { align: "right" });
@@ -2327,7 +2527,7 @@ function quotePdf(q, outputType = "blob") {
     y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
   });
   // Summen
-  if (y > 235) { footer(); doc.addPage(); y = 25; }
+  if (y > 235) { footer(); doc.addPage(); drawStationery(); y = 25; }
   y += 2; const lx = 125;
   if (!q.ku) {
     doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
@@ -2341,9 +2541,9 @@ function quotePdf(q, outputType = "blob") {
   if (q.ku) tail.push("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.");
   if (q.validUntil) tail.push(`Dieses Angebot ist freibleibend gültig bis zum ${fDate(q.validUntil)}.`);
   if (q.notes) tail.push(q.notes);
-  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
+  tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
   const closing = q.closing || s.quoteClosing || s.closing;
-  if (closing) { y += 4; const lines = doc.splitTextToSize(`${closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); y = 25; } doc.text(lines, L, y); }
+  if (closing) { y += 4; const lines = doc.splitTextToSize(`${closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
   footer();
   return doc.output(outputType);
 }
@@ -2953,10 +3153,137 @@ async function importCustomers(file) {
   }, false);
 }
 
+async function handleLogoFileInput(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const dataUrl = await readImageAsDataUrl(file, 800);
+    const hiddenData = $("#s-logoData");
+    const hiddenName = $("#s-logoName");
+    if (hiddenData) hiddenData.value = dataUrl;
+    if (hiddenName) hiddenName.value = file.name;
+    const wrap = $("#s-logo-wrap");
+    if (wrap) {
+      let previewBox = wrap.querySelector(".logo-preview-box");
+      if (!previewBox) {
+        previewBox = document.createElement("div");
+        previewBox.className = "logo-preview-box";
+        previewBox.style.cssText = "display:flex; align-items:center; gap:12px; background:var(--paper); padding:8px 12px; border:1px solid var(--rule); border-radius:var(--r); margin-bottom:8px;";
+        wrap.prepend(previewBox);
+      }
+      previewBox.innerHTML = `
+        <img id="s-logo-img" src="${esc(dataUrl)}" alt="Logo-Vorschau" style="max-height:46px; max-width:140px; object-fit:contain; background:#fff; padding:3px; border:1px solid var(--rule); border-radius:3px;">
+        <div style="flex:1; min-width:0;">
+          <div class="small" style="font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${esc(file.name)}</div>
+          <button type="button" class="btn sm danger" data-act="remove-logo" style="margin-top:4px;">Logo entfernen</button>
+        </div>`;
+      const empty = $("#s-logo-empty");
+      if (empty) empty.remove();
+    }
+    toast("Logo geladen (wird beim Klick auf 'Speichern' gesichert)");
+  } catch (err) {
+    console.error(err);
+    toast("Das Logo konnte nicht gelesen werden.", true);
+  }
+}
+
+async function handleStationeryFileInput(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const dataUrl = await readImageAsDataUrl(file, 2400);
+    const hiddenData = $("#s-stationeryData");
+    const hiddenName = $("#s-stationeryName");
+    if (hiddenData) hiddenData.value = dataUrl;
+    if (hiddenName) hiddenName.value = file.name;
+    const wrap = $("#s-stationery-wrap");
+    if (wrap) {
+      let previewBox = wrap.querySelector(".stationery-preview-box");
+      if (!previewBox) {
+        previewBox = document.createElement("div");
+        previewBox.className = "stationery-preview-box";
+        previewBox.style.cssText = "display:flex; align-items:center; gap:12px; background:var(--paper); padding:8px 12px; border:1px solid var(--rule); border-radius:var(--r); margin-bottom:8px;";
+        wrap.prepend(previewBox);
+      }
+      previewBox.innerHTML = `
+        <img id="s-stationery-img" src="${esc(dataUrl)}" alt="Briefpapier-Vorschau" style="max-height:60px; aspect-ratio:210/297; object-fit:cover; border:1px solid var(--rule); border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+        <div style="flex:1; min-width:0;">
+          <div class="small" style="font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${esc(file.name)}</div>
+          <button type="button" class="btn sm danger" data-act="remove-stationery" style="margin-top:4px;">Briefpapier entfernen</button>
+        </div>`;
+      const empty = $("#s-stationery-empty");
+      if (empty) empty.remove();
+    }
+    toast("Briefpapier geladen (wird beim Klick auf 'Speichern' gesichert)");
+  } catch (err) {
+    console.error(err);
+    toast("Das Briefpapier konnte nicht gelesen werden.", true);
+  }
+}
+
 /* ---------- events ---------- */
 const ACT = {
   close: () => closeModal(),
   nav: d => { view = d.v; lsSet("kb.view", view); history.replaceState(null, "", "#" + view); closeModal(); render(); window.scrollTo(0, 0); },
+  "remove-logo": () => {
+    const hiddenData = $("#s-logoData");
+    const hiddenName = $("#s-logoName");
+    const fileInput = $("#s-logo-file");
+    if (hiddenData) hiddenData.value = "";
+    if (hiddenName) hiddenName.value = "";
+    if (fileInput) fileInput.value = "";
+    const wrap = $("#s-logo-wrap");
+    if (wrap) {
+      const box = wrap.querySelector(".logo-preview-box");
+      if (box) box.remove();
+      if (!$("#s-logo-empty")) {
+        const empty = document.createElement("div");
+        empty.id = "s-logo-empty";
+        empty.className = "small muted";
+        empty.style.cssText = "padding:4px 0 8px;";
+        empty.textContent = "Noch kein Logo hinterlegt.";
+        wrap.prepend(empty);
+      }
+    }
+    toast("Logo entfernt (Klick auf 'Speichern' zum Bestätigen)");
+  },
+  "remove-stationery": () => {
+    const hiddenData = $("#s-stationeryData");
+    const hiddenName = $("#s-stationeryName");
+    const fileInput = $("#s-stationery-file");
+    if (hiddenData) hiddenData.value = "";
+    if (hiddenName) hiddenName.value = "";
+    if (fileInput) fileInput.value = "";
+    const wrap = $("#s-stationery-wrap");
+    if (wrap) {
+      const box = wrap.querySelector(".stationery-preview-box");
+      if (box) box.remove();
+      if (!$("#s-stationery-empty")) {
+        const empty = document.createElement("div");
+        empty.id = "s-stationery-empty";
+        empty.className = "small muted";
+        empty.style.cssText = "padding:4px 0 8px;";
+        empty.textContent = "Noch kein Briefpapier hinterlegt.";
+        wrap.prepend(empty);
+      }
+    }
+    toast("Briefpapier entfernt (Klick auf 'Speichern' zum Bestätigen)");
+  },
+  "preview-sample-invoice": () => {
+    const inv = S.invoices[0] || {
+      number: "RE-2026-001",
+      date: today(),
+      dueDate: addDays(today(), 14),
+      recipient: "Musterkunde GmbH\nz. H. Max Mustermann\nMusterstraße 12\n12345 Musterstadt",
+      intro: sett().intro || "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
+      items: [
+        { desc: "Design & Druck Werbeschild 2000 x 1000 mm Alu-Dibond", qty: 1, unit: "Stk.", price: 340, vat: 19 },
+        { desc: "Montage vor Ort", qty: 2.5, unit: "Std.", price: 65, vat: 19 }
+      ],
+      ku: !!sett().kleinunternehmer
+    };
+    openModal("Layout-Vorschau: Rechnung", `<div class="table-wrap">${paperHtml(inv)}</div>`, { wide: true });
+  },
   "f-inv": d => { F.inv = d.v; render(); },
   "f-quo": d => { F.quo = d.v; render(); },
   "f-ent": d => { F.ent = d.v; render(); },
@@ -3075,6 +3402,8 @@ document.addEventListener("change", e => {
   if (k === "import" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
   if (k === "import-customers" && e.target.files[0]) { importCustomers(e.target.files[0]); e.target.value = ""; }
   if (e.target.id === "e-file") handleReceiptFileInput(e.target);
+  if (e.target.id === "s-logo-file") handleLogoFileInput(e.target);
+  if (e.target.id === "s-stationery-file") handleStationeryFileInput(e.target);
   if (e.target.id === "e-rm") {
     const container = $("#receipt-preview-container");
     if (container) {
@@ -3112,6 +3441,42 @@ document.addEventListener("submit", async e => {
     const fd = new FormData(f); const patch = {};
     for (const [k, v] of fd.entries()) patch[k] = typeof v === "string" ? v.trim() : v;
     patch.kleinunternehmer = $("#s-ku").checked;
+    patch.hideTextHeader = $("#s-hide-header") ? $("#s-hide-header").checked : false;
+    patch.hideTextFooter = $("#s-hide-footer") ? $("#s-hide-footer").checked : false;
+    patch.logoData = $("#s-logoData") ? $("#s-logoData").value : (sett().logoData || "");
+    patch.logoName = $("#s-logoName") ? $("#s-logoName").value : (sett().logoName || "");
+    patch.stationeryData = $("#s-stationeryData") ? $("#s-stationeryData").value : (sett().stationeryData || "");
+    patch.stationeryName = $("#s-stationeryName") ? $("#s-stationeryName").value : (sett().stationeryName || "");
+
+    const b = $("button[type=submit]", f); b.disabled = true;
+    const logoFile = $("#s-logo-file")?.files?.[0];
+    if (logoFile && assets) {
+      try {
+        const up = await assets.upload(logoFile, { type: logoFile.type || "image/png" });
+        if (sett().logoFileId && sett().logoFileId !== up.id) assets.delete(sett().logoFileId).catch(() => {});
+        patch.logoFileId = up.id;
+      } catch (err) {
+        console.warn("Logo-Upload in Assets:", err);
+      }
+    } else if (!patch.logoData && sett().logoFileId && assets) {
+      assets.delete(sett().logoFileId).catch(() => {});
+      patch.logoFileId = null;
+    }
+
+    const stFile = $("#s-stationery-file")?.files?.[0];
+    if (stFile && assets) {
+      try {
+        const up = await assets.upload(stFile, { type: stFile.type || "image/png" });
+        if (sett().stationeryFileId && sett().stationeryFileId !== up.id) assets.delete(sett().stationeryFileId).catch(() => {});
+        patch.stationeryFileId = up.id;
+      } catch (err) {
+        console.warn("Briefpapier-Upload in Assets:", err);
+      }
+    } else if (!patch.stationeryData && sett().stationeryFileId && assets) {
+      assets.delete(sett().stationeryFileId).catch(() => {});
+      patch.stationeryFileId = null;
+    }
+
     patch.nextInvoiceNo = Math.max(1, parseInt(patch.nextInvoiceNo, 10) || 1);
     patch.nextQuoteNo = Math.max(1, parseInt(patch.nextQuoteNo, 10) || 1);
     patch.quoteValidityDays = Math.max(1, parseInt(patch.quoteValidityDays, 10) || 30);
@@ -3119,8 +3484,7 @@ document.addEventListener("submit", async e => {
     patch.quoteCounterYear = new Date().getFullYear();
     patch.paymentDays = Math.max(0, parseInt(patch.paymentDays, 10) || 0);
     patch.iban = (patch.iban || "").replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim().toUpperCase();
-    const b = $("button[type=submit]", f); b.disabled = true;
-    if (await saveSettings(patch)) toast("Einstellungen gespeichert");
+    if (await saveSettings(patch)) { toast("Einstellungen gespeichert"); render(); }
     b.disabled = false;
   }
   if (kind === "customer") {
