@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 1600 1000" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:affinity="https://www.affinity.studio/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <rect id="ArtBoard1" x="0" y="0" width="1600" height="1000" style="fill:none;"/>
+    <g id="ArtBoard11" affinity:id="ArtBoard1">
+        <path id="Signet-Hintergrund" affinity:id="Signet Hintergrund" d="M467.6,290C518.597,290 560,331.403 560,382.4L560,617.6C560,668.597 518.597,710 467.6,710L232.4,710C181.403,710 140,668.597 140,617.6L140,382.4C140,331.403 181.403,290 232.4,290L467.6,290Z" style="fill:rgb(30,106,80);"/>
+        <path id="Buchseite-links" affinity:id="Buchseite links" d="M228,418L344,439L344,612L228,591L228,418Z" style="fill:white;"/>
+        <path id="Buchseite-rechts" affinity:id="Buchseite rechts" d="M356,439L472,418L472,591L356,612L356,439Z" style="fill:white;"/>
+        <path id="Buchungszeile-1" affinity:id="Buchungszeile 1" d="M246,471.24L326,485.64L326,494.64L246,480.24L246,471.24Z" style="fill:rgb(156,201,181);"/>
+        <path id="Buchungszeile-2" affinity:id="Buchungszeile 2" d="M246,501.24L326,515.64L326,524.64L246,510.24L246,501.24Z" style="fill:rgb(156,201,181);"/>
+        <path id="Buchungszeile-3" affinity:id="Buchungszeile 3" d="M246,531.24L326,545.64L326,554.64L246,540.24L246,531.24Z" style="fill:rgb(156,201,181);"/>
+        <path id="Buchungszeile-4" affinity:id="Buchungszeile 4" d="M246,561.24L300,570.96L300,579.96L246,570.24L246,561.24Z" style="fill:rgb(156,201,181);"/>
+        <path id="Balken-1" affinity:id="Balken 1" d="M372,521.408L392,517.808L392,569.808L372,573.408L372,521.408Z" style="fill:rgb(30,106,80);"/>
+        <path id="Balken-2" affinity:id="Balken 2" d="M402,482.548L422,478.948L422,564.948L402,568.548L402,482.548Z" style="fill:rgb(30,106,80);"/>
+        <path id="Balken-3" affinity:id="Balken 3" d="M432,439.688L452,436.088L452,560.088L432,563.688L432,439.688Z" style="fill:rgb(30,106,80);"/>
+        <text id="Wortmarke-Kontobuch" affinity:id="Wortmarke Kontobuch" x="630px" y="545px" style="font-family:'Montserrat-Bold', 'Montserrat';font-weight:700;font-size:150px;fill:rgb(24,36,32);">K<tspan x="737.7px " y="545px ">o</tspan>nt<tspan x="1002.3px " y="545px ">o</tspan>buc<tspan x="1395.15px " y="545px ">h</tspan></text>
+        <text id="Claim" x="636px" y="630px" style="font-family:'Montserrat-Medium', 'Montserrat';font-weight:500;font-size:46px;fill:rgb(93,111,104);">Rec<tspan x="723.538px " y="630px ">h</tspan>nun<tspan x="848.796px " y="630px ">g</tspan>en · Belege · EÜR</text>
+    </g>
+</svg>

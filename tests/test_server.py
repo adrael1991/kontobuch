@@ -99,6 +99,24 @@ class ServerTest(unittest.TestCase):
             os.environ.pop("KONTOBUCH_PASSWORD", None)
             os.environ.pop("KONTOBUCH_AUTH", None)
 
+    def test_static_assets_and_favicon(self):
+        status, icon, hdrs = self.req("GET", "/favicon.ico")
+        self.assertEqual(status, 200)
+        self.assertEqual(hdrs.get("Content-Type"), "image/png")
+
+        status, svg, hdrs = self.req("GET", "/static/logo/kontobuch_signet.svg")
+        self.assertEqual(status, 200)
+        self.assertEqual(hdrs.get("Content-Type"), "image/svg+xml")
+
+        status, png, hdrs = self.req("GET", "/static/logo/kontobuch_signet_512.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(hdrs.get("Content-Type"), "image/png")
+
+        status, font, hdrs = self.req("GET", "/static/fonts/Montserrat-Bold.ttf")
+        self.assertEqual(status, 200)
+        self.assertEqual(hdrs.get("Content-Type"), "font/ttf")
+        self.assertGreater(len(font), 50000)
+
 
 if __name__ == "__main__":
     unittest.main()

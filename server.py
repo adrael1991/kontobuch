@@ -28,12 +28,28 @@ FILE_TYPES = {
     "text/xml": ".xml",
 }
 EXT_TYPES = {v: k for k, v in FILE_TYPES.items()}
+STATIC_MIME = {
+    ".js": "text/javascript; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".webp": "image/webp",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+}
 STATIC = {"shim.js": "text/javascript", "jspdf.umd.min.js": "text/javascript"}
 MAX_JSON = 10 << 20
 MAX_FILE = 20 << 20
 
 HEAD = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+<link rel="icon" type="image/svg+xml" href="/static/logo/kontobuch_signet.svg">
+<link rel="apple-touch-icon" sizes="192x192" href="/static/logo/kontobuch_signet_192.png">
 <style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 </head><body>"""
 CDN_JSPDF = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
@@ -145,8 +161,20 @@ class Handler(BaseHTTPRequestHandler):
         p = self.parts()
         if p == [""]:
             return self.reply(200, page(), "text/html; charset=utf-8")
-        if len(p) == 2 and p[0] == "static" and p[1] in STATIC:
-            return self.reply(200, (ROOT / "static" / p[1]).read_bytes(), STATIC[p[1]])
+        if p == ["favicon.ico"]:
+            fav = ROOT / "static" / "favicon.png"
+            if fav.is_file():
+                return self.reply(200, fav.read_bytes(), "image/png")
+        if len(p) >= 2 and p[0] == "static":
+            try:
+                target = (ROOT / "static" / Path(*p[1:])).resolve()
+                static_root = (ROOT / "static").resolve()
+                if target.is_file() and str(target).startswith(str(static_root)):
+                    ctype = STATIC_MIME.get(target.suffix.lower(), STATIC.get(target.name, "application/octet-stream"))
+                    return self.reply(200, target.read_bytes(), ctype)
+            except Exception:
+                pass
+            return self.reply(404, "Nicht gefunden", "text/plain; charset=utf-8")
         if len(p) == 2 and p[0] == "api" and p[1] in COLLS:
             with self.db_lock:
                 rows = self.con.execute("SELECT id, data FROM docs WHERE coll = ?", (p[1],)).fetchall()

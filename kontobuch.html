@@ -1,8 +1,43 @@
 <title>Kontobuch</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+<link rel="icon" type="image/svg+xml" href="/static/logo/kontobuch_signet.svg">
+<link rel="apple-touch-icon" sizes="192x192" href="/static/logo/kontobuch_signet_192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/static/fonts/Montserrat-Bold.ttf') format('truetype'),
+       url('static/fonts/Montserrat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/static/fonts/Montserrat-SemiBold.ttf') format('truetype'),
+       url('static/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/static/fonts/Montserrat-Medium.ttf') format('truetype'),
+       url('static/fonts/Montserrat-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/static/fonts/Montserrat-Regular.ttf') format('truetype'),
+       url('static/fonts/Montserrat-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 /* Layout: modern ledger book — a narrow tab rail on the left, one elevated working sheet on the right; amounts set in mono like a Kontobuch column, income in green ink, expenses in red ink, final sums double-ruled. */
 :root {
   --paper: #f4f6f3;
@@ -13,6 +48,8 @@
   --rule-strong: #b8c4bc;
   --accent: #1e6a50;
   --accent-soft: #e3eee8;
+  --accent-mint: #9cc9b5;
+  --accent-mint-soft: rgba(156, 201, 181, 0.22);
   --accent-ring: rgba(30, 106, 80, 0.22);
   --on-accent: #ffffff;
   --haben: #1b664d;
@@ -29,6 +66,7 @@
   --shadow-lg: 0 12px 32px rgb(24 36 32 / .10), 0 4px 12px rgb(24 36 32 / .05);
   --shadow-modal: 0 24px 64px rgb(0 0 0 / .28), 0 8px 24px rgb(0 0 0 / .12);
   --shadow: var(--shadow-sm);
+  --f-brand: "Montserrat", -apple-system, system-ui, sans-serif;
   --f-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
   --f-body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -41,6 +79,7 @@
   :root:not([data-theme="light"]) {
     --paper: #0f1513; --sheet: #17201d; --ink: #e5ece8; --muted: #95a59f;
     --rule: #25332c; --rule-strong: #384a41; --accent: #4ebf92; --accent-soft: #193226;
+    --accent-mint: #9cc9b5; --accent-mint-soft: rgba(156, 201, 181, 0.16);
     --accent-ring: rgba(78, 191, 146, 0.28);
     --on-accent: #091711; --haben: #5fc99b; --haben-soft: #183126; --soll: #f0897d; --soll-soft: #381f1d;
     --warn: #eab754; --warn-soft: #372a11; --info: #8ec3f2; --info-soft: #182c3f;
@@ -56,6 +95,7 @@
 :root[data-theme="dark"] {
   --paper: #0f1513; --sheet: #17201d; --ink: #e5ece8; --muted: #95a59f;
   --rule: #25332c; --rule-strong: #384a41; --accent: #4ebf92; --accent-soft: #193226;
+  --accent-mint: #9cc9b5; --accent-mint-soft: rgba(156, 201, 181, 0.16);
   --accent-ring: rgba(78, 191, 146, 0.28);
   --on-accent: #091711; --haben: #5fc99b; --haben-soft: #183126; --soll: #f0897d; --soll-soft: #381f1d;
   --warn: #eab754; --warn-soft: #372a11; --info: #8ec3f2; --info-soft: #182c3f;
@@ -87,10 +127,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .app { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100vh; }
 .rail { border-right: 1px solid var(--rule); padding: 24px 14px; display: flex; flex-direction: column; gap: 24px; position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; background: var(--paper); }
 .brand { padding: 0 8px; display: flex; align-items: center; gap: 12px; }
-.brand-badge { width: 36px; height: 36px; border-radius: var(--r-md); background: linear-gradient(135deg, var(--accent) 0%, #114c38 100%); color: #ffffff; display: flex; align-items: center; justify-content: center; font-family: var(--f-display); font-weight: 700; font-size: .95rem; letter-spacing: .02em; box-shadow: 0 2px 6px rgb(30 106 80 / .28); flex-shrink: 0; }
+.brand-badge { width: 36px; height: 36px; border-radius: var(--r-md); overflow: hidden; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgb(30 106 80 / .28); flex-shrink: 0; }
+.brand-badge svg { width: 100%; height: 100%; display: block; border-radius: inherit; }
 .brand-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.brand-text b { font-family: var(--f-display); font-size: 1.25rem; letter-spacing: -.02em; line-height: 1.15; }
-.brand-text span { font-size: .78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-text b { font-family: var(--f-brand); font-size: 1.28rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+.brand-text span { font-family: var(--f-brand); font-size: .76rem; font-weight: 500; letter-spacing: .02em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav { display: flex; flex-direction: column; gap: 3px; }
 .nav button { all: unset; cursor: pointer; padding: 8px 12px; border-radius: var(--r); display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); font-weight: 500; font-size: .92rem; transition: all .14s ease; }
 .nav-item-main { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
@@ -162,13 +203,13 @@ tr.grand td { border-bottom: 3px double var(--ink); font-weight: 600; }
 .chip.draft { background: var(--rule); color: var(--muted); }
 .chip.open { background: var(--info-soft); color: var(--info); }
 .chip.overdue { background: var(--warn-soft); color: var(--warn); }
-.chip.paid { background: var(--accent-soft); color: var(--haben); }
-.chip.accepted { background: var(--accent-soft); color: var(--haben); }
+.chip.paid { background: var(--accent-mint-soft); color: var(--haben); border: 1px solid rgba(156, 201, 181, 0.45); }
+.chip.accepted { background: var(--accent-mint-soft); color: var(--haben); border: 1px solid rgba(156, 201, 181, 0.45); }
 .chip.billed { background: var(--info-soft); color: var(--ink); }
 .chip.rejected { background: var(--soll-soft); color: var(--soll); }
 .chip.expired { background: var(--warn-soft); color: var(--warn); }
 .chip.cancelled { background: var(--soll-soft); color: var(--soll); }
-.chip.in { background: var(--accent-soft); color: var(--haben); }
+.chip.in { background: var(--accent-mint-soft); color: var(--haben); border: 1px solid rgba(156, 201, 181, 0.45); }
 .chip.out { background: var(--soll-soft); color: var(--soll); }
 
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -189,18 +230,36 @@ input.search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0
 
 .chart-bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; height: 148px; align-items: end; padding-top: 12px; }
 .chart-col { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; border-radius: var(--r-sm); padding: 6px 2px 4px; transition: background .14s ease; }
-.chart-col:hover, .chart-col[aria-pressed="true"] { background: var(--accent-soft); }
+.chart-col:hover, .chart-col[aria-pressed="true"] { background: var(--accent-mint-soft); }
 .chart-col .pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; flex: 1; border-bottom: 1px solid var(--rule-strong); padding-bottom: 2px; }
 .chart-col .b { width: min(12px, 38%); min-height: 2px; border-radius: 3px 3px 0 0; transition: height .22s cubic-bezier(0.16, 1, 0.3, 1); }
-.chart-col .b.in { background: var(--haben); }
+.chart-col .b.in { background: var(--haben); box-shadow: inset 0 2px 0 var(--accent-mint); }
 .chart-col .b.out { background: var(--soll); }
 .chart-col .lbl { font-size: .73rem; font-family: var(--f-mono); color: var(--muted); font-weight: 500; }
 .chart-col[aria-pressed="true"] .lbl { color: var(--accent); font-weight: 700; }
 .chart-legend { display: flex; align-items: center; gap: 14px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
 .chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
 
-.empty { padding: 40px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
-.empty p { max-width: 52ch; color: var(--muted); }
+.empty { padding: 48px 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; position: relative; overflow: hidden; }
+.empty p { max-width: 52ch; color: var(--muted); position: relative; z-index: 1; }
+.empty h2, .empty button { position: relative; z-index: 1; }
+.sheet-card.empty::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  bottom: -15px;
+  width: 140px;
+  height: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 420'%3E%3Cpath d='M88 128L204 149V322L88 301V128Z' fill='%231e6a50' opacity='0.08'/%3E%3Cpath d='M216 149L332 128V301L216 322V149Z' fill='%231e6a50' opacity='0.08'/%3E%3Cpath d='M106 181.24L186 195.64V204.64L106 190.24V181.24Z' fill='%239cc9b5' opacity='0.24'/%3E%3Cpath d='M106 211.24L186 225.64V234.64L106 220.24V211.24Z' fill='%239cc9b5' opacity='0.24'/%3E%3Cpath d='M106 241.24L186 255.64V264.64L106 250.24V241.24Z' fill='%239cc9b5' opacity='0.24'/%3E%3Cpath d='M106 271.24L160 280.96V289.96L106 280.24V271.24Z' fill='%239cc9b5' opacity='0.24'/%3E%3Cpath d='M232 231.408L252 227.808V279.808L232 283.408V231.408Z' fill='%231e6a50' opacity='0.12'/%3E%3Cpath d='M262 192.548L282 188.948V274.948L262 278.548V192.548Z' fill='%231e6a50' opacity='0.12'/%3E%3Cpath d='M292 149.688L312 146.088V270.088L292 273.688V149.688Z' fill='%231e6a50' opacity='0.12'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+  opacity: 0.95;
+}
+:root[data-theme="dark"] .sheet-card.empty::after {
+  filter: invert(1) hue-rotate(120deg) brightness(1.2);
+  opacity: 0.35;
+}
 .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 .steps li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
 .steps li:last-child { border-bottom: 0; }
@@ -329,10 +388,23 @@ legend { font-family: var(--f-display); font-weight: 700; font-size: 1.08rem; ma
 <div class="app">
   <aside class="rail">
     <div class="brand">
-      <div class="brand-badge" aria-hidden="true">KB</div>
+      <div class="brand-badge" aria-hidden="true" title="Kontobuch">
+        <svg viewBox="0 0 420 420" width="36" height="36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="420" height="420" rx="92.4" fill="#1e6a50"/>
+          <path d="M88 128L204 149V322L88 301V128Z" fill="#ffffff"/>
+          <path d="M216 149L332 128V301L216 322V149Z" fill="#ffffff"/>
+          <path d="M106 181.24L186 195.64V204.64L106 190.24V181.24Z" fill="#9cc9b5"/>
+          <path d="M106 211.24L186 225.64V234.64L106 220.24V211.24Z" fill="#9cc9b5"/>
+          <path d="M106 241.24L186 255.64V264.64L106 250.24V241.24Z" fill="#9cc9b5"/>
+          <path d="M106 271.24L160 280.96V289.96L106 280.24V271.24Z" fill="#9cc9b5"/>
+          <path d="M232 231.408L252 227.808V279.808L232 283.408V231.408Z" fill="#1e6a50"/>
+          <path d="M262 192.548L282 188.948V274.948L262 278.548V192.548Z" fill="#1e6a50"/>
+          <path d="M292 149.688L312 146.088V270.088L292 273.688V149.688Z" fill="#1e6a50"/>
+        </svg>
+      </div>
       <div class="brand-text">
         <b>Kontobuch</b>
-        <span id="brand-sub">Buchhaltung</span>
+        <span id="brand-sub">Rechnungen · Belege · EÜR</span>
       </div>
     </div>
     <nav class="nav" id="nav" aria-label="Bereiche"></nav>
@@ -723,7 +795,7 @@ function renderNav() {
   $("#nav").innerHTML = VIEWS.map(([k, l]) => `<button data-act="nav" data-v="${k}" ${view === k ? 'aria-current="page"' : ""}>
     <span class="nav-item-main">${NAV_ICONS[k] || ""}<span>${l}</span></span>${k === "invoices" && overdue ? `<span class="count" title="überfällig">${overdue}</span>` : ""}${k === "quotes" && openQuotes ? `<span class="count" title="offene Angebote">${openQuotes}</span>` : ""}</button>`).join("");
   const s = sett();
-  $("#brand-sub").textContent = s.name || "Buchhaltung";
+  $("#brand-sub").textContent = s.name || "Rechnungen · Belege · EÜR";
   const st = { pending: ["", "Verbinde …"], ok: ["ok", "Daten gespeichert"], none: ["err", "Kein Datenspeicher"], err: ["err", "Verbindung unterbrochen"] }[S.conn];
   const curTheme = document.documentElement.getAttribute("data-theme") || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const themeLabel = curTheme === "dark" ? "Hell-Modus" : "Dunkel-Modus";
