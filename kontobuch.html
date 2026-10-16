@@ -223,9 +223,12 @@ legend { font-family: var(--f-display); font-weight: 700; font-size: 1.08rem; ma
 .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .items { display: flex; flex-direction: column; gap: 8px; }
-.item-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px 104px 76px 100px 32px; gap: 8px; align-items: center; }
-.item-row.ku { grid-template-columns: minmax(0, 1fr) 72px 72px 104px 100px 32px; }
+.item-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px 104px 76px 100px 84px; gap: 8px; align-items: center; }
+.item-row.ku { grid-template-columns: minmax(0, 1fr) 72px 72px 104px 100px 84px; }
 .item-row output { font-family: var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.item-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.item-acts .icon-btn { width: 26px; height: 28px; font-size: .95rem; }
+.item-acts .icon-btn:disabled { opacity: .25; cursor: default; pointer-events: none; }
 .item-head { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
 .item-head span:nth-child(n+2) { text-align: right; }
 .totals { margin-left: auto; width: min(320px, 100%); display: flex; flex-direction: column; gap: 4px; }
@@ -1469,6 +1472,52 @@ async function submitEntry(form) {
 }
 
 /* ---------- invoices ---------- */
+const STD_UNITS = ["Std.", "Stk.", "psch.", "m²", "lfm", "Tag", "km"];
+
+function itemTemplates() {
+  const docs = [...(S.invoices || []), ...(S.quotes || [])].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const seen = new Set();
+  const out = [];
+  for (const doc of docs) {
+    for (const it of (doc.items || [])) {
+      const d = String(it.desc || "").trim();
+      if (!d) continue;
+      const key = d.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ desc: d, unit: String(it.unit || "Stk.").trim(), price: Number(it.price || 0), vat: Number(it.vat ?? 19) });
+      }
+    }
+  }
+  return out;
+}
+
+function unitNames() {
+  const seen = new Set();
+  const out = [];
+  for (const u of [...STD_UNITS, ...itemTemplates().map(t => t.unit)]) {
+    const cl = String(u || "").trim();
+    if (cl && !seen.has(cl.toLowerCase())) { seen.add(cl.toLowerCase()); out.push(cl); }
+  }
+  return out;
+}
+
+function moveArrayItem(arr, idx, dir) {
+  const to = idx + dir;
+  if (!Array.isArray(arr) || idx < 0 || idx >= arr.length || to < 0 || to >= arr.length) return false;
+  const tmp = arr[idx];
+  arr[idx] = arr[to];
+  arr[to] = tmp;
+  return true;
+}
+
+function itemDatalistsHtml() {
+  const tpls = itemTemplates();
+  const units = unitNames();
+  return `<datalist id="dl-items">${tpls.map(t => `<option value="${esc(t.desc)}">${esc(t.unit ? `${t.unit} · ` : "")}${eur(t.price)}</option>`).join("")}</datalist>
+    <datalist id="dl-units">${units.map(u => `<option value="${esc(u)}">`).join("")}</datalist>`;
+}
+
 function newInvoice(src) {
   const s = sett();
   ed = { id: null, status: "draft", customerId: "", recipient: "", date: today(), serviceDate: "", dueDays: s.paymentDays, intro: s.intro, notes: "",
@@ -1489,13 +1538,14 @@ function invoiceEditor() {
     <div class="f s2"><label for="i-due">Zahlungsziel (Tage)</label><input id="i-due" type="number" min="0" name="dueDays" value="${esc(ed.dueDays)}"></div>
     <div class="f full"><label for="i-intro">Einleitung</label><textarea id="i-intro" name="intro" rows="2">${esc(ed.intro)}</textarea></div>
   </div>
+  ${itemDatalistsHtml()}
   <div class="items" id="items"></div>
-  <div><button type="button" class="btn sm" data-act="item-add">+ Position</button></div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button type="button" class="btn sm" data-act="item-add" title="Tastenkürzel: Alt + N">+ Position</button><span class="hint small">Tipp: Frühere Leistungen werden beim Tippen vorgeschlagen · <code>Alt+N</code> neue Position · <code>Strg/⌘+S</code> Entwurf speichern</span></div>
   <div class="totals" id="inv-totals"></div>
   <div class="f full"><label for="i-notes">Anmerkung auf der Rechnung (optional)</label><textarea id="i-notes" name="notes" rows="2">${esc(ed.notes)}</textarea></div>
   ${ed.ku ? `<p class="note">Kleinunternehmer: Die Rechnung enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
   <div class="form-foot"><div class="grp">${ed.id ? `<button type="button" class="btn danger" data-act="del-invoice" data-id="${ed.id}">Entwurf löschen</button>` : ""}</div>
-    <div class="grp"><button type="button" class="btn" data-act="inv-save-draft">Als Entwurf speichern</button>
+    <div class="grp"><button type="button" class="btn" data-act="inv-save-draft" title="Tastenkürzel: Strg/Cmd + S">Als Entwurf speichern</button>
     <button class="btn primary" type="submit">Festschreiben als ${esc(nextInvoice(yOf(ed.date)).number)}</button></div></div></form>`, { wide: true });
   renderItems();
 }
@@ -1504,13 +1554,17 @@ function renderItems() {
   const cls = ed.ku ? "item-row ku" : "item-row";
   el.innerHTML = `<div class="${cls} item-head"><span>Beschreibung</span><span>Menge</span><span>Einheit</span><span>Einzelpreis</span>${ed.ku ? "" : "<span>USt</span>"}<span>Gesamt</span><span></span></div>` +
     ed.items.map((it, i) => `<div class="${cls}" data-i="${i}">
-      <input id="it-${i}-desc" aria-label="Beschreibung" data-f="desc" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
+      <input id="it-${i}-desc" aria-label="Beschreibung" data-f="desc" list="dl-items" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
       <input id="it-${i}-qty" aria-label="Menge" data-f="qty" inputmode="decimal" value="${esc(numIn(it.qty))}">
-      <input id="it-${i}-unit" aria-label="Einheit" data-f="unit" value="${esc(it.unit)}" placeholder="Stk.">
+      <input id="it-${i}-unit" aria-label="Einheit" data-f="unit" list="dl-units" value="${esc(it.unit)}" placeholder="Stk.">
       <input id="it-${i}-price" aria-label="Einzelpreis in Euro" data-f="price" inputmode="decimal" value="${esc(numIn(it.price))}" placeholder="0,00">
       ${ed.ku ? "" : `<select id="it-${i}-vat" aria-label="Umsatzsteuersatz" data-f="vat">${[19, 7, 0].map(r => `<option value="${r}" ${Number(it.vat) === r ? "selected" : ""}>${r} %</option>`).join("")}</select>`}
       <output data-line>${num(r2(parseNum(it.qty) * parseNum(it.price)))}</output>
-      <button type="button" class="icon-btn" data-act="item-del" data-i="${i}" aria-label="Position entfernen" ${ed.items.length < 2 ? "disabled" : ""}>×</button></div>`).join("");
+      <div class="item-acts">
+        <button type="button" class="icon-btn" data-act="item-move" data-i="${i}" data-dir="-1" title="Position nach oben" aria-label="Position nach oben" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button type="button" class="icon-btn" data-act="item-move" data-i="${i}" data-dir="1" title="Position nach unten" aria-label="Position nach unten" ${i === ed.items.length - 1 ? "disabled" : ""}>↓</button>
+        <button type="button" class="icon-btn" data-act="item-del" data-i="${i}" title="Position entfernen" aria-label="Position entfernen" ${ed.items.length < 2 ? "disabled" : ""}>×</button>
+      </div></div>`).join("");
   renderTotals();
 }
 function renderTotals() {
@@ -2350,14 +2404,15 @@ function quoteEditor() {
     <div class="f s2"><label for="q-due">Gültig (Tage)</label><input id="q-due" type="number" min="1" name="validDays" value="${esc(edQuote.validDays || 30)}"></div>
     <div class="f full"><label for="q-intro">Einleitung</label><textarea id="q-intro" name="intro" rows="2">${esc(edQuote.intro)}</textarea></div>
   </div>
+  ${itemDatalistsHtml()}
   <div class="items" id="quote-items"></div>
-  <div><button type="button" class="btn sm" data-act="quote-item-add">+ Position</button></div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button type="button" class="btn sm" data-act="quote-item-add" title="Tastenkürzel: Alt + N">+ Position</button><span class="hint small">Tipp: Frühere Leistungen werden beim Tippen vorgeschlagen · <code>Alt+N</code> neue Position · <code>Strg/⌘+S</code> Entwurf speichern</span></div>
   <div class="totals" id="quote-totals"></div>
   <div class="f full"><label for="q-notes">Anmerkung auf dem Angebot (optional)</label><textarea id="q-notes" name="notes" rows="2">${esc(edQuote.notes)}</textarea></div>
   <div class="f full"><label for="q-closing">Schlusstext</label><textarea id="q-closing" name="closing" rows="2">${esc(edQuote.closing)}</textarea></div>
   ${edQuote.ku ? `<p class="note">Kleinunternehmer: Das Angebot enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
   <div class="form-foot"><div class="grp">${edQuote.id ? `<button type="button" class="btn danger" data-act="del-quote" data-id="${edQuote.id}">Entwurf löschen</button>` : ""}</div>
-    <div class="grp"><button type="button" class="btn" data-act="quote-save-draft">Als Entwurf speichern</button>
+    <div class="grp"><button type="button" class="btn" data-act="quote-save-draft" title="Tastenkürzel: Strg/Cmd + S">Als Entwurf speichern</button>
     <button class="btn primary" type="submit">Festschreiben als ${esc(nextQuote(yOf(edQuote.date)).number)}</button></div></div></form>`, { wide: true });
   renderQuoteItems();
 }
@@ -2367,13 +2422,17 @@ function renderQuoteItems() {
   const cls = edQuote.ku ? "item-row ku" : "item-row";
   el.innerHTML = `<div class="${cls} item-head"><span>Beschreibung</span><span>Menge</span><span>Einheit</span><span>Einzelpreis</span>${edQuote.ku ? "" : "<span>USt</span>"}<span>Gesamt</span><span></span></div>` +
     edQuote.items.map((it, i) => `<div class="${cls}" data-qi="${i}">
-      <input id="qit-${i}-desc" aria-label="Beschreibung" data-qf="desc" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
+      <input id="qit-${i}-desc" aria-label="Beschreibung" data-qf="desc" list="dl-items" value="${esc(it.desc)}" placeholder="Leistung oder Artikel">
       <input id="qit-${i}-qty" aria-label="Menge" data-qf="qty" inputmode="decimal" value="${esc(numIn(it.qty))}">
-      <input id="qit-${i}-unit" aria-label="Einheit" data-qf="unit" value="${esc(it.unit)}" placeholder="Stk.">
+      <input id="qit-${i}-unit" aria-label="Einheit" data-qf="unit" list="dl-units" value="${esc(it.unit)}" placeholder="Stk.">
       <input id="qit-${i}-price" aria-label="Einzelpreis in Euro" data-qf="price" inputmode="decimal" value="${esc(numIn(it.price))}" placeholder="0,00">
       ${edQuote.ku ? "" : `<select id="qit-${i}-vat" aria-label="Umsatzsteuersatz" data-qf="vat">${[19, 7, 0].map(r => `<option value="${r}" ${Number(it.vat) === r ? "selected" : ""}>${r} %</option>`).join("")}</select>`}
       <output data-qline>${num(r2(parseNum(it.qty) * parseNum(it.price)))}</output>
-      <button type="button" class="icon-btn" data-act="quote-item-del" data-qi="${i}" aria-label="Position entfernen" ${edQuote.items.length < 2 ? "disabled" : ""}>×</button></div>`).join("");
+      <div class="item-acts">
+        <button type="button" class="icon-btn" data-act="quote-item-move" data-qi="${i}" data-dir="-1" title="Position nach oben" aria-label="Position nach oben" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button type="button" class="icon-btn" data-act="quote-item-move" data-qi="${i}" data-dir="1" title="Position nach unten" aria-label="Position nach unten" ${i === edQuote.items.length - 1 ? "disabled" : ""}>↓</button>
+        <button type="button" class="icon-btn" data-act="quote-item-del" data-qi="${i}" title="Position entfernen" aria-label="Position entfernen" ${edQuote.items.length < 2 ? "disabled" : ""}>×</button>
+      </div></div>`).join("");
   renderQuoteTotals();
 }
 
@@ -3417,8 +3476,26 @@ const ACT = {
   "export-assets-csv": () => exportAssetsCsv(year),
   "item-add": () => { modalDirty = true; syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
   "item-del": d => { modalDirty = true; syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
+  "item-move": d => {
+    syncItems();
+    const idx = Number(d.i), dir = Number(d.dir);
+    if (moveArrayItem(ed.items, idx, dir)) {
+      modalDirty = true;
+      renderItems();
+      $(`#it-${idx + dir}-desc`)?.focus();
+    }
+  },
   "quote-item-add": () => { modalDirty = true; syncQuoteItems(); edQuote.items.push({ desc: "", qty: 1, unit: edQuote.items.at(-1)?.unit || "", price: "", vat: edQuote.items.at(-1)?.vat ?? 19 }); renderQuoteItems(); $(`#qit-${edQuote.items.length - 1}-desc`)?.focus(); },
   "quote-item-del": d => { modalDirty = true; syncQuoteItems(); edQuote.items.splice(Number(d.qi), 1); renderQuoteItems(); },
+  "quote-item-move": d => {
+    syncQuoteItems();
+    const idx = Number(d.qi), dir = Number(d.dir);
+    if (moveArrayItem(edQuote.items, idx, dir)) {
+      modalDirty = true;
+      renderQuoteItems();
+      $(`#qit-${idx + dir}-desc`)?.focus();
+    }
+  },
   "inv-save-draft": () => saveDraft(),
   "quote-save-draft": () => saveQuoteDraft(),
   "export-json": () => exportJson(),
@@ -3450,6 +3527,24 @@ document.addEventListener("click", e => {
   e.preventDefault(); fn(t.dataset, t);
 });
 document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+    if (!$("#modal").hidden) {
+      const f = $("#modal form");
+      if (f) {
+        e.preventDefault();
+        if (f.dataset.form === "invoice") { syncItems(); saveDraft(); }
+        else if (f.dataset.form === "quote") { syncQuoteItems(); saveQuoteDraft(); }
+        else f.requestSubmit();
+      }
+      return;
+    }
+    const sf = $('form[data-form="settings"]');
+    if (sf) { e.preventDefault(); sf.requestSubmit(); return; }
+  }
+  if (e.altKey && e.key.toLowerCase() === "n" && !$("#modal").hidden) {
+    if ($('form[data-form="invoice"]')) { e.preventDefault(); ACT["item-add"](); return; }
+    if ($('form[data-form="quote"]')) { e.preventDefault(); ACT["quote-item-add"](); return; }
+  }
   if (e.key === "Escape" && !$("#modal").hidden) closeModal(false);
   if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.clickable")) { e.preventDefault(); e.target.click(); }
 });
@@ -3463,12 +3558,38 @@ document.addEventListener("input", e => {
   if (e.target.dataset.input === "search") { F.q = e.target.value; $("#ent-list").innerHTML = entriesRows(); return; }
   const row = e.target.closest("#items .item-row[data-i]");
   if (row && ed) {
-    const it = ed.items[Number(row.dataset.i)]; it[e.target.dataset.f] = e.target.value;
+    const it = ed.items[Number(row.dataset.i)];
+    const field = e.target.dataset.f;
+    it[field] = e.target.value;
+    if (field === "desc") {
+      const tpl = itemTemplates().find(t => t.desc.toLowerCase() === e.target.value.trim().toLowerCase());
+      if (tpl && (!it.price || Number(parseNum(it.price)) === 0)) {
+        it.unit = tpl.unit || it.unit;
+        it.price = tpl.price;
+        if (!ed.ku && tpl.vat != null) it.vat = tpl.vat;
+        const uInp = $('[data-f="unit"]', row); if (uInp) uInp.value = it.unit;
+        const pInp = $('[data-f="price"]', row); if (pInp) pInp.value = numIn(it.price);
+        const vSel = $('[data-f="vat"]', row); if (vSel) vSel.value = String(it.vat);
+      }
+    }
     $("output", row).textContent = num(r2(parseNum(it.qty) * parseNum(it.price))); renderTotals();
   }
   const qrow = e.target.closest("#quote-items .item-row[data-qi]");
   if (qrow && edQuote) {
-    const it = edQuote.items[Number(qrow.dataset.qi)]; it[e.target.dataset.qf] = e.target.value;
+    const it = edQuote.items[Number(qrow.dataset.qi)];
+    const field = e.target.dataset.qf;
+    it[field] = e.target.value;
+    if (field === "desc") {
+      const tpl = itemTemplates().find(t => t.desc.toLowerCase() === e.target.value.trim().toLowerCase());
+      if (tpl && (!it.price || Number(parseNum(it.price)) === 0)) {
+        it.unit = tpl.unit || it.unit;
+        it.price = tpl.price;
+        if (!edQuote.ku && tpl.vat != null) it.vat = tpl.vat;
+        const uInp = $('[data-qf="unit"]', qrow); if (uInp) uInp.value = it.unit;
+        const pInp = $('[data-qf="price"]', qrow); if (pInp) pInp.value = numIn(it.price);
+        const vSel = $('[data-qf="vat"]', qrow); if (vSel) vSel.value = String(it.vat);
+      }
+    }
     $("[data-qline]", qrow).textContent = num(r2(parseNum(it.qty) * parseNum(it.price))); renderQuoteTotals();
   }
 });

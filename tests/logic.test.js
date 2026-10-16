@@ -25,9 +25,9 @@ class MockJsPDF {
 }
 const mockWindow = { jspdf: { jsPDF: MockJsPDF } };
 
-const app = new Function("localStorage", "location", "window", js + "; return { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf };")(
+const app = new Function("localStorage", "location", "window", js + "; return { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf };")(
   { getItem: () => null, setItem() {} }, { hash: "" }, mockWindow);
-const { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf } = app;
+const { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf } = app;
 
 
 
@@ -403,6 +403,35 @@ quotePdf({
 });
 assert.ok(mockPdfCalls.addImage.some(call => call[0] === "data:image/jpeg;base64,quoteBg"), "quotePdf draws stationery");
 
+// 9. Leistungsvorlagen (itemTemplates), Einheiten (unitNames) & Positionen sortieren (moveArrayItem)
+S.invoices = [
+  { date: "2026-01-10", items: [{ desc: "Gestaltung Flyer", qty: 2, unit: "Std.", price: 60, vat: 19 }] },
+  { date: "2026-03-15", items: [{ desc: "Gestaltung Flyer", qty: 1, unit: "Std.", price: 75, vat: 19 }, { desc: "Alu-Dibond Schild", qty: 1, unit: "m²", price: 120, vat: 19 }] }
+];
+S.quotes = [
+  { date: "2026-02-01", items: [{ desc: "Montagepauschale", qty: 1, unit: "Pauschale", price: 95, vat: 19 }] }
+];
+const tpls = itemTemplates();
+assert.strictEqual(tpls.length, 3);
+// Neuestes Dokument (2026-03-15) gewinnt beim Preis für "Gestaltung Flyer" (75 € statt 60 €)
+assert.strictEqual(tpls[0].desc, "Gestaltung Flyer");
+assert.strictEqual(tpls[0].price, 75);
+assert.strictEqual(tpls[0].unit, "Std.");
+assert.strictEqual(tpls[1].desc, "Alu-Dibond Schild");
+assert.strictEqual(tpls[2].desc, "Montagepauschale");
+
+const uNames = unitNames();
+assert(uNames.includes("Std."), "Standard unit Std. present");
+assert(uNames.includes("m²"), "Standard unit m² present");
+assert(uNames.includes("Pauschale"), "Custom unit from quote present");
+
+const arr = ["Pos 1", "Pos 2", "Pos 3"];
+assert.strictEqual(moveArrayItem(arr, 0, -1), false); // Ganz oben kann nicht weiter hoch
+assert.strictEqual(moveArrayItem(arr, 2, 1), false);  // Ganz unten kann nicht weiter runter
+assert.strictEqual(moveArrayItem(arr, 2, -1), true);  // Pos 3 eins nach oben
+assert.deepStrictEqual(arr, ["Pos 1", "Pos 3", "Pos 2"]);
+
 console.log("OK");
+
 
 
