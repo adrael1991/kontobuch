@@ -647,9 +647,10 @@ function toast(msg, err) {
 }
 
 /* ---------- modal ---------- */
-let lastFocus = null;
+let lastFocus = null, modalDirty = false;
 function openModal(title, body, { wide, extraWide } = {}) {
   lastFocus = document.activeElement;
+  modalDirty = false;
   const m = $("#modal");
   const cls = extraWide ? "extra-wide" : (wide ? "wide" : "");
   m.innerHTML = `<div class="dialog ${cls}" role="dialog" aria-modal="true" aria-labelledby="m-title">
@@ -658,7 +659,14 @@ function openModal(title, body, { wide, extraWide } = {}) {
   m.hidden = false;
   ($("[autofocus]", m) || $("input,select,textarea", m) || $("button", m))?.focus();
 }
-function closeModal() { const m = $("#modal"); m.hidden = true; m.innerHTML = ""; ed = null; lastFocus?.focus?.(); }
+function closeModal(force = true) {
+  if (!force && modalDirty) {
+    if (!window.confirm("Du hast ungespeicherte Eingaben. Möchtest du das Fenster wirklich schließen und die Änderungen verwerfen?")) return false;
+  }
+  modalDirty = false;
+  const m = $("#modal"); m.hidden = true; m.innerHTML = ""; ed = null; edQuote = null; lastFocus?.focus?.();
+  return true;
+}
 function confirmBox(title, text, yesLabel, onYes, danger = true) {
   openModal(title, `<p>${text}</p><div class="form-foot"><span></span><div class="grp">
     <button class="btn" data-act="close">Abbrechen</button>
@@ -3289,8 +3297,8 @@ async function handleStationeryFileInput(input) {
 
 /* ---------- events ---------- */
 const ACT = {
-  close: () => closeModal(),
-  nav: d => { view = d.v; lsSet("kb.view", view); history.replaceState(null, "", "#" + view); closeModal(); render(); window.scrollTo(0, 0); },
+  close: () => closeModal(false),
+  nav: d => { if (!closeModal(false)) return; view = d.v; lsSet("kb.view", view); history.replaceState(null, "", "#" + view); render(); window.scrollTo(0, 0); },
   "toggle-theme": () => {
     const cur = document.documentElement.getAttribute("data-theme") || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const next = cur === "dark" ? "light" : "dark";
@@ -3407,10 +3415,10 @@ const ACT = {
     else if (method && method.value === "gwg" && Number(d.nd) > 1) method.value = "linear";
   },
   "export-assets-csv": () => exportAssetsCsv(year),
-  "item-add": () => { syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
-  "item-del": d => { syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
-  "quote-item-add": () => { syncQuoteItems(); edQuote.items.push({ desc: "", qty: 1, unit: edQuote.items.at(-1)?.unit || "", price: "", vat: edQuote.items.at(-1)?.vat ?? 19 }); renderQuoteItems(); $(`#qit-${edQuote.items.length - 1}-desc`)?.focus(); },
-  "quote-item-del": d => { syncQuoteItems(); edQuote.items.splice(Number(d.qi), 1); renderQuoteItems(); },
+  "item-add": () => { modalDirty = true; syncItems(); ed.items.push({ desc: "", qty: 1, unit: ed.items.at(-1)?.unit || "", price: "", vat: ed.items.at(-1)?.vat ?? 19 }); renderItems(); $(`#it-${ed.items.length - 1}-desc`)?.focus(); },
+  "item-del": d => { modalDirty = true; syncItems(); ed.items.splice(Number(d.i), 1); renderItems(); },
+  "quote-item-add": () => { modalDirty = true; syncQuoteItems(); edQuote.items.push({ desc: "", qty: 1, unit: edQuote.items.at(-1)?.unit || "", price: "", vat: edQuote.items.at(-1)?.vat ?? 19 }); renderQuoteItems(); $(`#qit-${edQuote.items.length - 1}-desc`)?.focus(); },
+  "quote-item-del": d => { modalDirty = true; syncQuoteItems(); edQuote.items.splice(Number(d.qi), 1); renderQuoteItems(); },
   "inv-save-draft": () => saveDraft(),
   "quote-save-draft": () => saveQuoteDraft(),
   "export-json": () => exportJson(),
@@ -3431,18 +3439,22 @@ function syncItems() {
     row.querySelectorAll("[data-f]").forEach(inp => it[inp.dataset.f] = inp.value);
   });
 }
+window.addEventListener("beforeunload", e => {
+  if (modalDirty) { e.preventDefault(); e.returnValue = ""; }
+});
 document.addEventListener("click", e => {
   if (e.target.closest("[data-stop]")) return;
-  if (e.target.id === "modal") { closeModal(); return; }
+  if (e.target.id === "modal") { closeModal(false); return; }
   const t = e.target.closest("[data-act]"); if (!t) return;
   const fn = ACT[t.dataset.act]; if (!fn) return;
   e.preventDefault(); fn(t.dataset, t);
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && !$("#modal").hidden) closeModal();
+  if (e.key === "Escape" && !$("#modal").hidden) closeModal(false);
   if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.clickable")) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener("input", e => {
+  if (e.target.closest("#modal form")) modalDirty = true;
   if (e.target.id === "e-party") {
     const cat = lastCategory(new FormData(e.target.form).get("kind"), e.target.value);
     if (cat && $("#e-cat")) $("#e-cat").value = cat;
@@ -3461,6 +3473,7 @@ document.addEventListener("input", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.closest("#modal form")) modalDirty = true;
   const k = e.target.dataset.change;
   if (k === "year") { year = Number(e.target.value); render(); }
   if (k === "period") { period = e.target.value; render(); }
