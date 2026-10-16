@@ -58,6 +58,7 @@ assert(xmlKu.includes("<ram:DuePayableAmount>650.00</ram:DuePayableAmount>"), "Z
 assert(xmlKu.includes("unitCode=\"C62\""), "Pauschal Einheit muss C62 sein");
 assert(xmlKu.includes("unitCode=\"HUR\""), "Std. Einheit muss HUR sein");
 assert(xmlKu.includes("<ram:IBANID>DE89370501981234567890</ram:IBANID>"), "IBAN muss ohne Leerzeichen sein");
+assert(xmlKu.includes("<ram:AccountName>Kevin Schmitt</ram:AccountName>"), "Kontoinhaber Kevin Schmitt muss als AccountName für Bank-Empfängerüberprüfung enthalten sein");
 assert(xmlKu.includes("<ram:ID schemeID=\"FC\">204/123/45678</ram:ID>"), "Steuernummer muss als FC registriert sein");
 assert(xmlKu.includes("<ram:Name>Design Kunde GmbH</ram:Name>"), "Kundenname muss extrahiert sein");
 assert(xmlKu.includes("<ram:PostcodeCode>10115</ram:PostcodeCode>"), "PLZ muss extrahiert sein");

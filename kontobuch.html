@@ -187,6 +187,18 @@ input.search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0
 .note { font-size: .85rem; color: var(--muted); border-left: 3px solid var(--rule-strong); padding-left: 12px; }
 .note.warn { border-color: var(--warn); color: var(--ink); }
 
+.chart-bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; height: 148px; align-items: end; padding-top: 12px; }
+.chart-col { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; border-radius: var(--r-sm); padding: 6px 2px 4px; transition: background .14s ease; }
+.chart-col:hover, .chart-col[aria-pressed="true"] { background: var(--accent-soft); }
+.chart-col .pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; flex: 1; border-bottom: 1px solid var(--rule-strong); padding-bottom: 2px; }
+.chart-col .b { width: min(12px, 38%); min-height: 2px; border-radius: 3px 3px 0 0; transition: height .22s cubic-bezier(0.16, 1, 0.3, 1); }
+.chart-col .b.in { background: var(--haben); }
+.chart-col .b.out { background: var(--soll); }
+.chart-col .lbl { font-size: .73rem; font-family: var(--f-mono); color: var(--muted); font-weight: 500; }
+.chart-col[aria-pressed="true"] .lbl { color: var(--accent); font-weight: 700; }
+.chart-legend { display: flex; align-items: center; gap: 14px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
+.chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+
 .empty { padding: 40px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .empty p { max-width: 52ch; color: var(--muted); }
 .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
@@ -269,6 +281,10 @@ legend { font-family: var(--f-display); font-weight: 700; font-size: 1.08rem; ma
 .paper table td { border-bottom-color: #ddd; }
 .paper .foot { border-top: 1px solid #ccc; padding-top: 10px; font-size: 11px; color: #555; display: flex; flex-wrap: wrap; gap: 4px 20px; }
 .paper h2 { color: #1a1a1a; }
+.paper .giro-box { display: flex; align-items: center; gap: 14px; margin-top: 10px; padding: 10px 12px; border: 1px solid #d4dcd7; border-radius: 6px; background: #fafbfa; align-self: flex-start; }
+.paper .giro-box svg { width: 76px; height: 76px; flex-shrink: 0; display: block; }
+.paper .giro-meta { font-size: 11px; line-height: 1.4; color: #333; display: flex; flex-direction: column; gap: 1px; }
+.paper .giro-meta b { font-size: 11.5px; color: #111; }
 
 #toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 20px; border-radius: var(--r-md); font-size: .88rem; font-weight: 500; z-index: 30; max-width: calc(100% - 32px); box-shadow: var(--shadow-lg); border: 1px solid rgb(255 255 255 / 0.08); display: flex; align-items: center; gap: 8px; animation: toast-in .2s cubic-bezier(0.16, 1, 0.3, 1); }
 #toast.err { background: var(--soll); color: #fff; }
@@ -376,7 +392,7 @@ const VIEWS = [
   ["euer", "EÜR"],
   ["settings", "Einstellungen"],
 ];
-const SELLER_FIELDS = ["name", "owner", "street", "zip", "city", "email", "phone", "web", "taxNo", "vatId", "bank", "iban", "bic"];
+const SELLER_FIELDS = ["name", "owner", "accountHolder", "street", "zip", "city", "email", "phone", "web", "taxNo", "vatId", "bank", "iban", "bic"];
 
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -409,6 +425,7 @@ let db = null, assets = null, downloads = null;
 let view = VIEWS.some(v => v[0] === location.hash.slice(1)) ? location.hash.slice(1) : (lsGet("kb.view") || "overview");
 let year = new Date().getFullYear();
 let period = "all";
+let overviewMonth = "all";
 const F = { inv: "all", quo: "all", ent: "all", q: "" };
 let ed = null; // invoice editor state
 let edQuote = null; // quote editor state
@@ -419,7 +436,7 @@ const DEF = { kleinunternehmer: true, invoicePrefix: "RE-{JAHR}-", nextInvoiceNo
   quoteClosing: "Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.",
   intro: "Vielen Dank für Ihren Auftrag. Ich berechne Ihnen folgende Leistungen:",
   closing: "Mit freundlichen Grüßen",
-  hideTextHeader: false, hideTextFooter: false,
+  hideTextHeader: false, hideTextFooter: false, showGiroCode: true,
   logoData: "", logoName: "", logoFileId: null,
   stationeryData: "", stationeryName: "", stationeryFileId: null };
 const sett = () => ({ ...DEF, ...S.settings });
@@ -616,6 +633,17 @@ function euer(y, p = "all") {
 function kuTurnover(y) {
   return r2(journal(y).filter(r => r.kind === "in" && r.category !== "sonstige_in").reduce((a, r) => a + r.net, 0));
 }
+const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+function monthlySeries(y) {
+  const rows = journal(y);
+  return MONTH_NAMES.map((label, idx) => {
+    const m = pad(idx + 1);
+    const mRows = rows.filter(r => (r.date || "").slice(5, 7) === m);
+    const inc = r2(mRows.filter(r => r.kind === "in").reduce((a, r) => a + r.gross, 0));
+    const out = r2(mRows.filter(r => r.kind === "out").reduce((a, r) => a + r.gross, 0));
+    return { month: m, label, inc, out, profit: r2(inc - out), count: mRows.length };
+  });
+}
 function years() {
   const ys = new Set([new Date().getFullYear(), year]);
   S.invoices.forEach(i => { if (i.date) ys.add(yOf(i.date)); if (i.paidDate) ys.add(yOf(i.paidDate)); });
@@ -748,6 +776,42 @@ function yearCloseReminder() {
   </div>`;
 }
 
+function renderMonthlyChart(y) {
+  const series = monthlySeries(y);
+  const maxVal = Math.max(100, ...series.flatMap(m => [m.inc, m.out]));
+  const sel = overviewMonth !== "all" ? series.find(m => m.month === overviewMonth) : null;
+  return `
+  <section class="section sheet-card panel">
+    <div class="section-head">
+      <div>
+        <h2>Monatsverlauf ${y}${sel ? ` · ${sel.label}` : ""}</h2>
+        <span class="small muted">${sel ? `Einnahmen ${eur(sel.inc)} · Ausgaben ${eur(sel.out)} · Saldo ${eur(sel.profit)}` : "Klicke auf einen Monat, um die Buchungen unten zu filtern"}</span>
+      </div>
+      <div class="toolbar">
+        ${sel ? `<button type="button" class="btn ghost sm" data-act="chart-month" data-m="all">Filter zurücksetzen</button>` : ""}
+        <div class="chart-legend">
+          <span><i class="sw in"></i>Einnahmen</span>
+          <span><i class="sw out"></i>Ausgaben</span>
+        </div>
+      </div>
+    </div>
+    <div class="chart-bars" role="group" aria-label="Monatsverlauf ${y}">
+      ${series.map(m => {
+        const hIn = m.inc > 0 ? Math.max(4, Math.round((m.inc / maxVal) * 100)) : 0;
+        const hOut = m.out > 0 ? Math.max(4, Math.round((m.out / maxVal) * 100)) : 0;
+        const active = overviewMonth === m.month;
+        return `<div class="chart-col ${active ? "active" : ""}" data-act="chart-month" data-m="${m.month}" title="${m.label} ${y}: +${eur(m.inc)} / −${eur(m.out)} (Saldo: ${eur(m.profit)})">
+          <div class="chart-pair">
+            <div class="chart-bar in" style="height:${hIn}%"></div>
+            <div class="chart-bar out" style="height:${hOut}%"></div>
+          </div>
+          <span class="chart-lbl">${m.label}</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </section>`;
+}
+
 function vOverview() {
   const s = sett();
   const e = euer(year);
@@ -767,7 +831,9 @@ function vOverview() {
       <ol class="steps">${steps.map(([done, t, act, l], i) => `<li class="${done ? "done" : ""}"><span class="tick">${done ? "✓" : i + 1}</span><span class="t">${t}</span>
         ${done ? "" : act === "settings" ? `<button class="btn sm" data-act="nav" data-v="settings">${l}</button>` : `<button class="btn sm" data-act="${act}">${l}</button>`}</li>`).join("")}</ol>
     </section>` : "";
-  const recent = journal(year).slice(0, 6);
+  const allRows = journal(year);
+  const recent = (overviewMonth === "all" ? allRows : allRows.filter(r => (r.date || "").slice(5, 7) === overviewMonth)).slice(0, 8);
+  const selMonthLabel = overviewMonth !== "all" ? MONTH_NAMES[Number(overviewMonth) - 1] : null;
   return `
   <div class="head"><div class="head-l"><h3>Geschäftsjahr</h3><h1>Übersicht ${year}</h1></div>
     <div class="toolbar">${yearSel()}<button class="btn" data-act="new-quote">Neues Angebot</button><button class="btn" data-act="new-out">Ausgabe erfassen</button><button class="btn primary" data-act="new-invoice">Neue Rechnung</button></div></div>
@@ -779,6 +845,7 @@ function vOverview() {
     <div class="kpi"><h3>Gewinn</h3><span class="v">${eur(e.profit)}</span><span class="s">vorläufig, nach EÜR</span></div>
     <div class="kpi"><h3>Offen</h3><span class="v">${eur(openSum)}</span><span class="s">${open.length} Rechnung${open.length === 1 ? "" : "en"}${overdue.length ? `, <b style="color:var(--warn)">${overdue.length} überfällig</b>` : ""}${openQuotes.length ? ` · ${openQuotes.length} Angebot${openQuotes.length === 1 ? "" : "e"}` : ""}</span></div>
   </div>
+  ${renderMonthlyChart(year)}
   <div class="grid2">
     <section class="section">
       <div class="section-head"><h2>Offene Rechnungen</h2><button class="btn ghost sm" data-act="nav" data-v="invoices">Alle Rechnungen</button></div>
@@ -794,11 +861,11 @@ function vOverview() {
         ${openQuotes.map(q => `<tr><td class="mono">${esc(q.number)}</td><td>${esc(quoteTitle(q))}</td><td>${fDate(q.validUntil)} ${quoteState(q) === "expired" ? chip("expired") : ""}</td>
           <td class="amt">${eur(calcInv(q).gross)}</td><td class="actions"><button class="btn sm primary" data-act="quote-to-invoice" data-id="${q.id}">In Rechnung</button></td></tr>`).join("")}
         </tbody></table></div>` : ""}
-      <div class="section-head" style="margin-top:12px"><h2>Letzte Buchungen</h2><button class="btn ghost sm" data-act="nav" data-v="entries">Alle Buchungen</button></div>
+      <div class="section-head" style="margin-top:12px"><h2>${selMonthLabel ? `Buchungen im ${selMonthLabel} ${year}` : "Letzte Buchungen"}</h2><button class="btn ghost sm" data-act="nav" data-v="entries">Alle Buchungen</button></div>
       ${!allReady() ? loading() : recent.length ? `<div class="table-wrap sheet-card"><table><tbody>
         ${recent.map(r => `<tr><td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || CAT[r.category] || "")}</span></td>
           <td class="amt ${r.kind}">${r.kind === "out" ? "−" : "+"}${num(r.gross)}</td></tr>`).join("")}
-        </tbody></table></div>` : `<div class="sheet-card empty"><p>Noch keine Buchungen in ${year}. Bezahlte Rechnungen und erfasste Ausgaben erscheinen hier.</p></div>`}
+        </tbody></table></div>` : `<div class="sheet-card empty"><p>Noch keine Buchungen${selMonthLabel ? ` im ${selMonthLabel} ${year}` : ` in ${year}`}. Bezahlte Rechnungen und erfasste Ausgaben erscheinen hier.</p></div>`}
     </section>
     <aside class="section">${kuPanel()}</aside>
   </div>`;
@@ -1072,6 +1139,8 @@ function vSettings() {
         <span>Kleinunternehmer nach § 19 UStG<span class="sub">Rechnungen ohne Umsatzsteuer, mit Hinweis auf § 19 UStG. Gilt für neue Rechnungen und Buchungen.</span></span></label></div>
     </div></fieldset>
     <fieldset><legend>Bankverbindung</legend><div class="fields">
+      ${fld("accountHolder", "Kontoinhaber:in (für Bankprüfung / GiroCode)", "full", `placeholder="${esc(s.owner || s.name || "z. B. Kevin Schmitt")}"`)}
+      <div class="f full" style="margin-top:-6px"><span class="hint">Wichtig für die Empfängerüberprüfung der Banken (Verification of Payee): Wenn leer, wird automatisch <b>Inhaber:in</b> (${esc(s.owner || s.name || "–")}) als Zahlungsempfänger im GiroCode, auf der Rechnung und in ZUGFeRD hinterlegt.</span></div>
       ${fld("bank", "Bank")}${fld("bic", "BIC")}${fld("iban", "IBAN", "full")}
     </div></fieldset>
     <fieldset><legend>Erscheinungsbild & Briefpapier</legend><div class="fields">
@@ -1122,6 +1191,10 @@ function vSettings() {
       <div class="f full">
         <label class="check"><input type="checkbox" id="s-hide-footer" name="hideTextFooter" ${s.hideTextFooter ? "checked" : ""}>
           <span>Standard-Fußzeile auf Rechnungen & Angeboten ausblenden<span class="sub">Empfohlen, wenn Bankverbindung, Steuernummer und Firmendaten bereits im Briefpapier-Fuß stehen.</span></span></label>
+      </div>
+      <div class="f full">
+        <label class="check"><input type="checkbox" id="s-show-girocode" name="showGiroCode" ${s.showGiroCode !== false ? "checked" : ""}>
+          <span>GiroCode (EPC-Überweisungs-QR-Code) auf Rechnungen anzeigen<span class="sub">Ermöglicht Kunden das fehlerfreie Bezahlen per Banking-App (inkl. Kontoinhaber, IBAN, Betrag und Rechnungsnummer).</span></span></label>
       </div>
       <div class="f full" style="margin-top:4px;">
         <button type="button" class="btn sm" data-act="preview-sample-invoice">Layout-Vorschau ansehen ↗</button>
@@ -1604,7 +1677,9 @@ async function finalizeInvoice() {
   if (S.invoices.some(i => i.number === number)) { toast(`Die Nummer ${number} gibt es schon. Passe die nächste Nummer in den Einstellungen an.`, true); return; }
   const btn = $('form[data-form="invoice"] button[type=submit]'); if (btn) btn.disabled = true;
   if (!await saveSettings({ nextInvoiceNo: n + 1, counterYear: y })) { if (btn) btn.disabled = false; return; }
-  const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""])); seller.closing = s.closing;
+  const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""]));
+  seller.closing = s.closing;
+  seller.showGiroCode = s.showGiroCode !== false;
   const id = ed.id || uid();
   const refQId = ed.refQuoteId;
   const refQNo = ed.refQuoteNumber;
@@ -1683,6 +1758,241 @@ function readImageAsDataUrl(file, maxDimension = 2400) {
   });
 }
 
+function bankAccountHolder(s = sett()) {
+  return String(s?.accountHolder || s?.owner || s?.name || "").trim();
+}
+
+/* ---------- EPC GiroCode (ISO/IEC 18004 QR Code Generator, ECC Level M) ---------- */
+const QR_VER = [
+  null,
+  [21, 16, 10, 1, 16, 0, 0, []],
+  [25, 28, 16, 1, 28, 0, 0, [6, 18]],
+  [29, 44, 26, 1, 44, 0, 0, [6, 22]],
+  [33, 64, 18, 2, 32, 0, 0, [6, 26]],
+  [37, 86, 24, 2, 43, 0, 0, [6, 30]],
+  [41, 108, 16, 4, 27, 0, 0, [6, 34]],
+  [45, 124, 18, 4, 31, 0, 0, [6, 22, 38]],
+  [49, 154, 22, 2, 38, 2, 39, [6, 24, 42]],
+  [53, 182, 22, 3, 36, 2, 37, [6, 26, 46]],
+  [57, 216, 26, 4, 43, 1, 44, [6, 28, 50]],
+  [61, 254, 30, 1, 50, 4, 51, [6, 30, 54]],
+  [65, 290, 22, 6, 36, 2, 37, [6, 32, 58]],
+  [69, 334, 22, 8, 37, 1, 38, [6, 34, 62]]
+];
+
+function encodeQrMatrix(text) {
+  const bytes = Array.from(new TextEncoder().encode(String(text || "")));
+  let ver = 1;
+  while (ver <= 13) {
+    const cap = QR_VER[ver][1] - (ver <= 9 ? 2 : 3);
+    if (bytes.length <= cap) break;
+    ver++;
+  }
+  if (ver > 13) return null;
+  const [size, totalDataCw, ecCwPerBlock, g1Blocks, g1DataCw, g2Blocks, g2DataCw, align] = QR_VER[ver];
+
+  const bits = [];
+  const pushBits = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+  pushBits(0b0100, 4);
+  pushBits(bytes.length, ver <= 9 ? 8 : 16);
+  for (const b of bytes) pushBits(b, 8);
+  const maxBits = totalDataCw * 8;
+  pushBits(0, Math.min(4, maxBits - bits.length));
+  while (bits.length % 8 !== 0) bits.push(0);
+  const dataCw = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+    dataCw.push(b);
+  }
+  let padIdx = 0;
+  while (dataCw.length < totalDataCw) {
+    dataCw.push(padIdx % 2 === 0 ? 0xEC : 0x11);
+    padIdx++;
+  }
+
+  const gfExp = new Uint8Array(512), gfLog = new Uint8Array(256);
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    gfExp[i] = x; gfLog[x] = i;
+    x <<= 1; if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < 512; i++) gfExp[i] = gfExp[i - 255];
+  const gfMul = (a, b) => (a === 0 || b === 0) ? 0 : gfExp[gfLog[a] + gfLog[b]];
+
+  let gen = [1];
+  for (let i = 0; i < ecCwPerBlock; i++) {
+    const next = new Array(gen.length + 1).fill(0);
+    for (let j = 0; j < gen.length; j++) {
+      next[j] ^= gen[j];
+      next[j + 1] ^= gfMul(gen[j], gfExp[i]);
+    }
+    gen = next;
+  }
+  const rsEncode = msg => {
+    const rem = new Uint8Array(ecCwPerBlock);
+    for (const d of msg) {
+      const factor = d ^ rem[0];
+      rem.copyWithin(0, 1);
+      rem[ecCwPerBlock - 1] = 0;
+      for (let j = 0; j < ecCwPerBlock; j++) rem[j] ^= gfMul(gen[j + 1], factor);
+    }
+    return Array.from(rem);
+  };
+
+  const blocks = [];
+  let offset = 0;
+  for (let b = 0; b < g1Blocks + g2Blocks; b++) {
+    const len = b < g1Blocks ? g1DataCw : g2DataCw;
+    const slice = dataCw.slice(offset, offset + len);
+    offset += len;
+    blocks.push({ data: slice, ec: rsEncode(slice) });
+  }
+  const finalCw = [];
+  const maxDataLen = Math.max(g1DataCw, g2DataCw);
+  for (let i = 0; i < maxDataLen; i++) {
+    for (const blk of blocks) if (i < blk.data.length) finalCw.push(blk.data[i]);
+  }
+  for (let i = 0; i < ecCwPerBlock; i++) {
+    for (const blk of blocks) finalCw.push(blk.ec[i]);
+  }
+
+  const mat = Array.from({ length: size }, () => new Uint8Array(size));
+  const isFunc = Array.from({ length: size }, () => new Uint8Array(size));
+  const setFunc = (r, c, val) => {
+    if (r >= 0 && r < size && c >= 0 && c < size) {
+      mat[r][c] = val ? 1 : 0;
+      isFunc[r][c] = 1;
+    }
+  };
+  const placeFinder = (row, col) => {
+    for (let r = -1; r <= 7; r++) {
+      for (let c = -1; c <= 7; c++) {
+        const inOuter = r >= 0 && r <= 6 && c >= 0 && c <= 6;
+        const onBorder = r === 0 || r === 6 || c === 0 || c === 6;
+        const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        setFunc(row + r, col + c, inOuter && (onBorder || inInner));
+      }
+    }
+  };
+  placeFinder(0, 0);
+  placeFinder(0, size - 7);
+  placeFinder(size - 7, 0);
+
+  for (let i = 8; i < size - 8; i++) {
+    setFunc(6, i, i % 2 === 0);
+    setFunc(i, 6, i % 2 === 0);
+  }
+  for (const r of align) {
+    for (const c of align) {
+      if ((r === 6 && c === 6) || (r === 6 && c === size - 7) || (r === size - 7 && c === 6)) continue;
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          setFunc(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+        }
+      }
+    }
+  }
+  setFunc(size - 8, 8, 1);
+  for (let i = 0; i < 9; i++) {
+    if (i !== 6) { setFunc(8, i, 0); setFunc(i, 8, 0); }
+  }
+  for (let i = 0; i < 8; i++) {
+    setFunc(8, size - 1 - i, 0);
+    setFunc(size - 1 - i, 8, 0);
+  }
+  if (ver >= 7) {
+    let rem = ver;
+    for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+    const vBits = (ver << 12) | rem;
+    for (let i = 0; i < 18; i++) {
+      const bit = (vBits >>> i) & 1;
+      const a = size - 11 + (i % 3), b = Math.floor(i / 3);
+      setFunc(b, a, bit);
+      setFunc(a, b, bit);
+    }
+  }
+
+  let bitIdx = 0;
+  const totalBits = finalCw.length * 8;
+  let up = true;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      const r = up ? size - 1 - vert : vert;
+      for (let j = 0; j < 2; j++) {
+        const c = right - j;
+        if (!isFunc[r][c]) {
+          let dark = 0;
+          if (bitIdx < totalBits) {
+            dark = (finalCw[bitIdx >>> 3] >>> (7 - (bitIdx & 7))) & 1;
+            bitIdx++;
+          }
+          if ((r + c) % 2 === 0) dark ^= 1;
+          mat[r][c] = dark;
+        }
+      }
+    }
+    up = !up;
+  }
+
+  const fmtData = (0b00 << 3) | 0b000;
+  let fRem = fmtData;
+  for (let i = 0; i < 10; i++) fRem = (fRem << 1) ^ ((fRem >>> 9) * 0x537);
+  const fmtBits = ((fmtData << 10) | fRem) ^ 0x5412;
+  for (let i = 0; i <= 5; i++) mat[8][i] = (fmtBits >>> i) & 1;
+  mat[8][7] = (fmtBits >>> 6) & 1;
+  mat[8][8] = (fmtBits >>> 7) & 1;
+  mat[7][8] = (fmtBits >>> 8) & 1;
+  for (let i = 9; i < 15; i++) mat[14 - i][8] = (fmtBits >>> i) & 1;
+  for (let i = 0; i < 8; i++) mat[size - 1 - i][8] = (fmtBits >>> i) & 1;
+  for (let i = 8; i < 15; i++) mat[8][size - 15 + i] = (fmtBits >>> i) & 1;
+  mat[size - 8][8] = 1;
+
+  return mat.map(row => Array.from(row));
+}
+
+function epcQrPayload(inv, s = sett()) {
+  if (!inv || inv.storno) return "";
+  const seller = { ...s, ...(inv.seller || {}) };
+  if (seller.showGiroCode === false) return "";
+  const iban = String(seller.iban || "").replace(/\s+/g, "").toUpperCase();
+  const holder = bankAccountHolder(seller).slice(0, 70);
+  const t = calcInv(inv);
+  if (!iban || !holder || !(t.gross > 0) || t.gross > 999999999.99) return "";
+  const bic = String(seller.bic || "").replace(/\s+/g, "").toUpperCase();
+  const ref = (`Rechnung ${inv.number || ""}`).trim().slice(0, 140);
+  return [
+    "BCD",
+    "002",
+    "1",
+    "SCT",
+    bic,
+    holder,
+    iban,
+    `EUR${t.gross.toFixed(2)}`,
+    "",
+    "",
+    ref
+  ].join("\n");
+}
+
+function giroCodeSvg(inv, s = sett()) {
+  const payload = epcQrPayload(inv, s);
+  if (!payload) return "";
+  const mat = encodeQrMatrix(payload);
+  if (!mat) return "";
+  const n = mat.length;
+  const q = 2;
+  let path = "";
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (mat[r][c]) path += `M${c + q},${r + q}h1v1h-1z`;
+    }
+  }
+  return `<svg viewBox="0 0 ${n + q * 2} ${n + q * 2}" shape-rendering="crispEdges" role="img" aria-label="GiroCode Überweisungs-QR-Code"><rect width="100%" height="100%" fill="#ffffff"/><path d="${path}" fill="#111111"/></svg>`;
+}
+
 function paperHeaderHtml(s) {
   if (s.hideTextHeader && !s.logoData) {
     return `<div class="ph" style="min-height:36px"></div>`;
@@ -1700,16 +2010,21 @@ function paperHeaderHtml(s) {
 
 function paperFooterHtml(s) {
   if (s.hideTextFooter) return "";
+  const holder = bankAccountHolder(s);
+  const showSeparateHolder = s.iban && holder && holder !== s.name;
   return `<div class="foot"><span>${esc(s.name)}</span>${s.taxNo ? `<span>Steuernr. ${esc(s.taxNo)}</span>` : ""}${s.vatId ? `<span>USt-IdNr. ${esc(s.vatId)}</span>` : ""}
-    ${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>`;
+    ${showSeparateHolder ? `<span>Kontoinhaber ${esc(holder)}</span>` : ""}${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>`;
 }
 
 function paperHtml(inv) {
-  const s = inv.seller || sett(); const t = calcInv(inv);
+  const s = { ...sett(), ...(inv.seller || {}) }; const t = calcInv(inv);
+  const holder = bankAccountHolder(s);
   const senderLine = [s.name, s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
   const paperStyle = s.stationeryData
     ? `background-image: url('${esc(s.stationeryData)}'); background-size: 100% 100%; background-repeat: no-repeat; background-position: top center;`
     : "";
+  const qrSvg = giroCodeSvg(inv, s);
+  const giroHtml = qrSvg ? `<div class="giro-box">${qrSvg}<div class="giro-meta"><b>GiroCode · Bequem per Banking-App bezahlen</b><span>Empfänger (Kontoinhaber): <b>${esc(holder)}</b></span><span>IBAN: <span class="mono">${esc(s.iban)}</span>${s.bic ? ` · BIC: <span class="mono">${esc(s.bic)}</span>` : ""}</span><span>Betrag: <b class="mono">${eur(t.gross)}</b> · Verwendungszweck: <span class="mono">Rechnung ${esc(inv.number)}</span></span></div></div>` : "";
   return `<div class="paper"${paperStyle ? ` style="${paperStyle}"` : ""}>
     ${paperHeaderHtml(s)}
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(inv.recipient)}</div></div>
@@ -1722,8 +2037,8 @@ function paperHtml(inv) {
     <div class="totals">${inv.ku ? "" : `<div><span>Netto</span><span class="mono">${eur(t.net)}</span></div>${Object.entries(t.byRate).filter(([r]) => Number(r)).map(([r, b]) => `<div><span>USt ${r} %</span><span class="mono">${eur(r2(b * r / 100))}</span></div>`).join("")}`}
       <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div></div>
     <div>${inv.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
-      ${inv.storno ? "" : `<p>Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto` : ""} unter Angabe der Rechnungsnummer.</p>`}
-      ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}<p class="sub" style="margin-top:8px">E-Rechnung nach EN 16931. Die maschinenlesbare XML-Datei (Factur-X) ist im PDF eingebettet.</p>${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(s.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
+      ${inv.storno ? "" : `<p>Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto${holder && holder !== s.name ? ` (Empfänger / Kontoinhaber: ${esc(holder)})` : ""}` : ""} unter Angabe der Rechnungsnummer.</p>`}
+      ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}${giroHtml}<p class="sub" style="margin-top:8px">E-Rechnung nach EN 16931. Die maschinenlesbare XML-Datei (Factur-X) ist im PDF eingebettet.</p>${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(s.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
     ${paperFooterHtml(s)}
   </div>`;
 }
@@ -1849,6 +2164,7 @@ function generateFacturXXml(inv, s = sett(), customers = S.customers) {
       </ram:ApplicableTradeTax>`).join("\n");
 
   const ibanClean = (seller.iban || "").replace(/\s+/g, "").toUpperCase();
+  const accountHolder = bankAccountHolder(seller);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
@@ -1920,7 +2236,8 @@ ${itemsXml}
       <ram:SpecifiedTradeSettlementPaymentMeans>
         <ram:TypeCode>58</ram:TypeCode>
         <ram:PayeePartyCreditorFinancialAccount>
-          <ram:IBANID>${xmlEsc(ibanClean)}</ram:IBANID>
+          <ram:IBANID>${xmlEsc(ibanClean)}</ram:IBANID>${accountHolder ? `
+          <ram:AccountName>${xmlEsc(accountHolder)}</ram:AccountName>` : ""}
         </ram:PayeePartyCreditorFinancialAccount>${seller.bic ? `
         <ram:PayeeSpecifiedCreditorFinancialInstitution>
           <ram:BICID>${xmlEsc(seller.bic.replace(/\s+/g, "").toUpperCase())}</ram:BICID>
@@ -2189,7 +2506,8 @@ async function handleReceiptFileInput(input) {
 function invoicePdf(inv, outputType = "blob") {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const s = inv.seller || sett(); const t = calcInv(inv);
+  const s = { ...sett(), ...(inv.seller || {}) }; const t = calcInv(inv);
+  const holder = bankAccountHolder(s);
 
   // ZUGFeRD 2.2 / Factur-X (EN 16931) XML erzeugen und einbetten
   try {
@@ -2236,7 +2554,7 @@ function invoicePdf(inv, outputType = "blob") {
     if (s.hideTextFooter) return;
     doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
     const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
-    const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
+    const bank = [s.bank, s.iban && holder && holder !== s.name && `Kontoinhaber ${holder}`, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
     doc.text(parts.join("  ·  "), L, 283);
     doc.text([...(bank.length ? [bank.join("  ·  ")] : []), "E-Rechnung nach EN 16931 (ZUGFeRD 2.2 / Factur-X)"].join("  ·  "), L, 287);
     black();
@@ -2300,9 +2618,37 @@ function invoicePdf(inv, outputType = "blob") {
   doc.setFont("helvetica", "normal"); y += 14;
   const tail = [];
   if (inv.ku) tail.push("Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.");
-  if (!inv.storno) tail.push(`Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? " auf das unten genannte Konto" : ""} unter Angabe der Rechnungsnummer ${inv.number}.`);
+  if (!inv.storno) tail.push(`Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto${holder && holder !== s.name ? ` (Empfänger / Kontoinhaber: ${holder})` : ""}` : ""} unter Angabe der Rechnungsnummer ${inv.number}.`);
   if (inv.notes) tail.push(inv.notes);
   tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
+  const qrPayload = epcQrPayload(inv, s);
+  const qrMat = qrPayload ? encodeQrMatrix(qrPayload) : null;
+  if (qrMat) {
+    const boxSize = 24;
+    if (y + boxSize + 4 > 268) { footer(); doc.addPage(); drawStationery(); y = 25; }
+    y += 2;
+    const n = qrMat.length;
+    const mod = boxSize / (n + 2);
+    if (typeof doc.setFillColor === "function" && typeof doc.rect === "function") {
+      doc.setFillColor(255, 255, 255);
+      doc.rect(L, y, boxSize, boxSize, "F");
+      doc.setFillColor(20, 20, 20);
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          if (qrMat[r][c]) doc.rect(L + (c + 1) * mod, y + (r + 1) * mod, mod + 0.04, mod + 0.04, "F");
+        }
+      }
+    }
+    const tx = L + boxSize + 4;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); black();
+    doc.text("GiroCode · Bequem per Banking-App bezahlen", tx, y + 4.5);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); gray();
+    doc.text(`Empfänger (Kontoinhaber): ${holder}`, tx, y + 9.5);
+    doc.text(`IBAN: ${s.iban}${s.bic ? `  ·  BIC: ${s.bic}` : ""}`, tx, y + 14);
+    doc.text(`Betrag: ${eur(t.gross)}  ·  Verwendungszweck: Rechnung ${inv.number}`, tx, y + 18.5);
+    black(); doc.setFontSize(10);
+    y += boxSize + 4;
+  }
   if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
   footer();
   return doc.output(outputType);
@@ -3427,6 +3773,7 @@ const ACT = {
   "f-inv": d => { F.inv = d.v; render(); },
   "f-quo": d => { F.quo = d.v; render(); },
   "f-ent": d => { F.ent = d.v; render(); },
+  "chart-month": d => { overviewMonth = (overviewMonth === d.m || d.m === "all") ? "all" : d.m; render(); },
   "new-invoice": () => newInvoice(),
   "new-quote": () => newQuote(),
   "new-customer": () => customerForm(),
@@ -3596,7 +3943,7 @@ document.addEventListener("input", e => {
 document.addEventListener("change", e => {
   if (e.target.closest("#modal form")) modalDirty = true;
   const k = e.target.dataset.change;
-  if (k === "year") { year = Number(e.target.value); render(); }
+  if (k === "year") { year = Number(e.target.value); overviewMonth = "all"; render(); }
   if (k === "period") { period = e.target.value; render(); }
   if (k === "inv-cust" && ed) { const c = S.customers.find(x => x.id === e.target.value); if (c) $("#i-rec").value = recipientOf(c); }
   if (k === "quote-cust" && edQuote) { const c = S.customers.find(x => x.id === e.target.value); if (c) $("#q-rec").value = recipientOf(c); }
@@ -3650,6 +3997,7 @@ document.addEventListener("submit", async e => {
     patch.kleinunternehmer = $("#s-ku").checked;
     patch.hideTextHeader = $("#s-hide-header") ? $("#s-hide-header").checked : false;
     patch.hideTextFooter = $("#s-hide-footer") ? $("#s-hide-footer").checked : false;
+    patch.showGiroCode = $("#s-show-girocode") ? $("#s-show-girocode").checked : true;
     patch.logoData = $("#s-logoData") ? $("#s-logoData").value : (sett().logoData || "");
     patch.logoName = $("#s-logoName") ? $("#s-logoName").value : (sett().logoName || "");
     patch.stationeryData = $("#s-stationeryData") ? $("#s-stationeryData").value : (sett().stationeryData || "");
