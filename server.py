@@ -3,12 +3,15 @@
 
 Nur Python-Standardbibliothek. Gedacht für einen LXC-Container im Heimnetz.
 """
+import base64
 import json
 import os
 import re
+import secrets
 import sqlite3
+import threading
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -48,6 +51,7 @@ def connect():
     (DATA / "belege").mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DATA / "kontobuch.db", check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=5000")
     con.execute("CREATE TABLE IF NOT EXISTS docs (coll TEXT, id TEXT, data TEXT NOT NULL, PRIMARY KEY (coll, id))")
     return con
 
@@ -56,10 +60,22 @@ def find_file(fid):
     return next((p for p in (DATA / "belege").glob(fid + ".*") if p.suffix in EXT_TYPES), None)
 
 
+def expected_auth():
+    """Liest optionalen Passwortschutz aus KONTOBUCH_AUTH ('user:pass') oder KONTOBUCH_PASSWORD."""
+    auth = os.environ.get("KONTOBUCH_AUTH", "").strip()
+    if auth:
+        return ("pair", auth if ":" in auth else f"admin:{auth}")
+    pw = os.environ.get("KONTOBUCH_PASSWORD", "").strip()
+    if pw:
+        return ("pw_only", pw)
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     con = None
+    db_lock = threading.Lock()
 
-    def reply(self, code, body=b"", ctype="application/json"):
+    def reply(self, code, body=b"", ctype="application/json", extra_headers=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode()
         elif isinstance(body, str):
@@ -68,8 +84,39 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def check_auth(self):
+        cfg = expected_auth()
+        if not cfg:
+            return True
+        mode, secret = cfg
+        hdr = self.headers.get("Authorization", "")
+        if hdr.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(hdr[6:].strip()).decode("utf-8")
+                if mode == "pw_only" and ":" in decoded:
+                    _, given_pw = decoded.split(":", 1)
+                    if secrets.compare_digest(given_pw.encode("utf-8"), secret.encode("utf-8")):
+                        return True
+                elif secrets.compare_digest(decoded.encode("utf-8"), secret.encode("utf-8")):
+                    return True
+            except Exception:
+                pass
+        self.reply(
+            401,
+            "Authentifizierung erforderlich",
+            "text/plain; charset=utf-8",
+            extra_headers={"WWW-Authenticate": 'Basic realm="Kontobuch", charset="UTF-8"'},
+        )
+        return False
 
     def parts(self):
         return self.path.split("?")[0].strip("/").split("/")
@@ -93,41 +140,50 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, str(e), "text/plain; charset=utf-8")
 
     def do_GET(self):
+        if not self.check_auth():
+            return
         p = self.parts()
         if p == [""]:
             return self.reply(200, page(), "text/html; charset=utf-8")
         if len(p) == 2 and p[0] == "static" and p[1] in STATIC:
             return self.reply(200, (ROOT / "static" / p[1]).read_bytes(), STATIC[p[1]])
         if len(p) == 2 and p[0] == "api" and p[1] in COLLS:
-            rows = self.con.execute("SELECT id, data FROM docs WHERE coll = ?", (p[1],)).fetchall()
+            with self.db_lock:
+                rows = self.con.execute("SELECT id, data FROM docs WHERE coll = ?", (p[1],)).fetchall()
             return self.reply(200, [{"id": i, "data": json.loads(d)} for i, d in rows])
         if len(p) == 2 and p[0] == "_blob" and ID.match(p[1]) and (f := find_file(p[1])):
             return self.reply(200, f.read_bytes(), EXT_TYPES[f.suffix])
         self.reply(404, "Nicht gefunden", "text/plain; charset=utf-8")
 
     def do_PUT(self):
+        if not self.check_auth():
+            return
         if not (dp := self.doc_path()):
             return self.reply(404, "Nicht gefunden", "text/plain; charset=utf-8")
         data = json.loads(self.body(MAX_JSON))
         if not isinstance(data, dict):
             raise ValueError("Dokument muss ein JSON-Objekt sein")
-        with self.con:
+        with self.db_lock, self.con:
             self.con.execute("INSERT OR REPLACE INTO docs VALUES (?, ?, ?)", (*dp, json.dumps(data)))
         self.reply(204)
 
     def do_DELETE(self):
+        if not self.check_auth():
+            return
         p = self.parts()
         if len(p) == 3 and p[:2] == ["api", "files"] and ID.match(p[2]):
             if f := find_file(p[2]):
-                f.unlink()
+                f.unlink(missing_ok=True)
             return self.reply(204)
         if not (dp := self.doc_path()):
             return self.reply(404, "Nicht gefunden", "text/plain; charset=utf-8")
-        with self.con:
+        with self.db_lock, self.con:
             self.con.execute("DELETE FROM docs WHERE coll = ? AND id = ?", dp)
         self.reply(204)
 
     def do_POST(self):
+        if not self.check_auth():
+            return
         if self.parts() != ["api", "files"]:
             return self.reply(404, "Nicht gefunden", "text/plain; charset=utf-8")
         ext = FILE_TYPES.get(self.headers.get("Content-Type", ""))
@@ -137,16 +193,20 @@ class Handler(BaseHTTPRequestHandler):
         if n > MAX_FILE:
             return self.reply(413, "Datei größer als 20 MB", "text/plain; charset=utf-8")
         fid = uuid.uuid4().hex
-        (DATA / "belege" / (fid + ext)).write_bytes(self.rfile.read(n))
+        belege_dir = DATA / "belege"
+        tmp_file = belege_dir / f".{fid}.tmp"
+        target_file = belege_dir / (fid + ext)
+        tmp_file.write_bytes(self.rfile.read(n))
+        tmp_file.replace(target_file)
         self.reply(201, {"id": fid, "url": "/_blob/" + fid, "sizeBytes": n, "contentType": self.headers["Content-Type"]})
 
 
 def make_server(port=PORT):
-    # shortcut: ein Thread, eine DB-Verbindung; reicht für eine Person im Heimnetz.
     Handler.con = connect()
-    return HTTPServer(("0.0.0.0", port), Handler)
+    return ThreadingHTTPServer(("0.0.0.0", port), Handler)
 
 
 if __name__ == "__main__":
-    print(f"Kontobuch läuft auf Port {PORT}, Daten in {DATA}")
+    auth_info = "aktiviert" if expected_auth() else "aus (KONTOBUCH_PASSWORD nicht gesetzt)"
+    print(f"Kontobuch läuft auf Port {PORT}, Daten in {DATA}, Passwortschutz: {auth_info}")
     make_server().serve_forever()
