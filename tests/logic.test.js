@@ -5,7 +5,7 @@ const path = require("path");
 
 let js = fs.readFileSync(path.join(__dirname, "..", "kontobuch.html"), "utf8").split("<script>")[1].split("</script>")[0];
 js = js.split("/* ---------- events")[0].replace(/let view = [^\n]+/, 'let view = "overview";');
-const mockPdfCalls = { addImage: [], text: [], addPage: 0 };
+const mockPdfCalls = { addImage: [], text: [], rect: [], addPage: 0 };
 class MockJsPDF {
   constructor() {
     this.calls = mockPdfCalls;
@@ -14,10 +14,12 @@ class MockJsPDF {
   addImage(...args) { mockPdfCalls.addImage.push(args); }
   getImageProperties(data) { return { width: 200, height: 100 }; }
   setTextColor() {}
+  setFillColor() {}
   setFontSize() {}
   setDrawColor() {}
   setFont() {}
   line() {}
+  rect(...args) { mockPdfCalls.rect.push(args); }
   text(...args) { mockPdfCalls.text.push(args); }
   splitTextToSize(text) { return String(text || "").split("\n"); }
   addPage() { mockPdfCalls.addPage++; }
@@ -25,9 +27,9 @@ class MockJsPDF {
 }
 const mockWindow = { jspdf: { jsPDF: MockJsPDF } };
 
-const app = new Function("localStorage", "location", "window", js + "; return { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf };")(
+const app = new Function("localStorage", "location", "window", js + "; return { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, monthlySeries, bankAccountHolder, epcQrPayload, encodeQrMatrix, giroCodeSvg, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf };")(
   { getItem: () => null, setItem() {} }, { hash: "" }, mockWindow);
-const { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf } = app;
+const { S, sett, nextInvoice, nextQuote, quoteState, matchPeriod, yearCloseReminder, nextCustNo, customersFromCsv, partyNames, lastCategory, itemTemplates, unitNames, moveArrayItem, euer, journal, monthlySeries, bankAccountHolder, epcQrPayload, encodeQrMatrix, giroCodeSvg, receiptPreviewHtml, calcAsset, crc32, createZip, generateJournalCsv, generateAssetsCsv, generateEuerReport, generateReadmeReport, paperHtml, paperQuoteHtml, paperHeaderHtml, paperFooterHtml, invoicePdf, quotePdf } = app;
 
 
 
@@ -431,7 +433,76 @@ assert.strictEqual(moveArrayItem(arr, 2, 1), false);  // Ganz unten kann nicht w
 assert.strictEqual(moveArrayItem(arr, 2, -1), true);  // Pos 3 eins nach oben
 assert.deepStrictEqual(arr, ["Pos 1", "Pos 3", "Pos 2"]);
 
+// 10. Kontoinhaber-Logik (Verification of Payee), EPC-GiroCode & Monatsverlauf
+assert.strictEqual(bankAccountHolder({ name: "Creative Schmitti", owner: "Kevin Schmitt" }), "Kevin Schmitt");
+assert.strictEqual(bankAccountHolder({ name: "Creative Schmitti", owner: "Kevin Schmitt", accountHolder: "Kevin Schmitt (Geschäftskonto)" }), "Kevin Schmitt (Geschäftskonto)");
+assert.strictEqual(bankAccountHolder({ name: "Muster GmbH", owner: "" }), "Muster GmbH");
+
+const giroInv = {
+  number: "RE-2026-042",
+  date: "2026-04-10",
+  dueDate: "2026-04-24",
+  recipient: "Kunde GmbH\nHauptstr. 1\n12345 Berlin",
+  ku: true,
+  items: [{ desc: "Webdesign", qty: 1, unit: "psch.", price: 540.5, vat: 0 }],
+  seller: {
+    name: "Creative Schmitti",
+    owner: "Kevin Schmitt",
+    iban: "DE89 3705 0198 1234 5678 90",
+    bic: "BYLADEM1MOM"
+  }
+};
+const epc = epcQrPayload(giroInv);
+assert.strictEqual(epc, [
+  "BCD",
+  "002",
+  "1",
+  "SCT",
+  "BYLADEM1MOM",
+  "Kevin Schmitt",
+  "DE89370501981234567890",
+  "EUR540.50",
+  "",
+  "",
+  "Rechnung RE-2026-042"
+].join("\n"));
+
+// Stornorechnung oder deaktivierter GiroCode erzeugt keinen QR-Code
+assert.strictEqual(epcQrPayload({ ...giroInv, storno: true }), "");
+assert.strictEqual(epcQrPayload({ ...giroInv, seller: { ...giroInv.seller, showGiroCode: false } }), "");
+
+const qrMat = encodeQrMatrix(epc);
+assert(Array.isArray(qrMat) && qrMat.length >= 29 && qrMat.length === qrMat[0].length, "QR matrix must be square");
+const svgHtml = giroCodeSvg(giroInv);
+assert(svgHtml.includes('<svg viewBox="0 0'), "giroCodeSvg renders inline SVG");
+
+const htmlWithGiro = paperHtml(giroInv);
+assert(htmlWithGiro.includes("Empfänger (Kontoinhaber): <b>Kevin Schmitt</b>"), "paperHtml displays Kevin Schmitt as Kontoinhaber in GiroCode box");
+assert(htmlWithGiro.includes("Kontoinhaber Kevin Schmitt"), "paperFooterHtml displays Kontoinhaber Kevin Schmitt when owner differs from business name");
+
+mockPdfCalls.rect = [];
+mockPdfCalls.text = [];
+invoicePdf(giroInv);
+assert(mockPdfCalls.rect.length > 50, "invoicePdf draws vector QR code modules via doc.rect");
+assert(mockPdfCalls.text.some(t => String(t[0]).includes("Empfänger (Kontoinhaber): Kevin Schmitt")), "invoicePdf prints Kontoinhaber Kevin Schmitt next to GiroCode");
+
+// Monatsverlauf (12 Monate Jan–Dez)
+S.invoices = [
+  { id: "i1", number: "RE-2026-001", status: "paid", date: "2026-01-10", paidDate: "2026-01-15", ku: true, items: [{ qty: 1, price: 400 }] },
+  { id: "i2", number: "RE-2026-002", status: "paid", date: "2026-03-05", paidDate: "2026-03-20", ku: true, items: [{ qty: 1, price: 850 }] }
+];
+S.entries = [
+  { id: "e1", kind: "out", date: "2026-01-22", gross: 120, category: "material", ku: true },
+  { id: "e2", kind: "out", date: "2026-03-11", gross: 250, category: "software", ku: true }
+];
+const mSeries = monthlySeries(2026);
+assert.strictEqual(mSeries.length, 12);
+assert.deepStrictEqual([mSeries[0].month, mSeries[0].label, mSeries[0].inc, mSeries[0].out, mSeries[0].profit], ["01", "Jan", 400, 120, 280]);
+assert.deepStrictEqual([mSeries[1].month, mSeries[1].inc, mSeries[1].out], ["02", 0, 0]);
+assert.deepStrictEqual([mSeries[2].month, mSeries[2].label, mSeries[2].inc, mSeries[2].out, mSeries[2].profit], ["03", "Mär", 850, 250, 600]);
+
 console.log("OK");
+
 
 
 
