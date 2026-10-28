@@ -1549,7 +1549,9 @@ function openReceiptModal(id, name = "Beleg") {
 }
 function entryForm(e) {
   const s = sett();
-  const ku = e.id ? !!e.ku : !!s.kleinunternehmer;
+  const ku = !!s.kleinunternehmer || !!e.ku;
+  const defVat = ku ? 0 : 19;
+  const curVat = Number(e.vatRate ?? defVat);
   const cats = e.kind === "in" ? IN_CATS : OUT_CATS;
   openModal(e.id ? (e.kind === "in" ? "Einnahme bearbeiten" : "Ausgabe bearbeiten") : (e.kind === "in" ? "Einnahme erfassen" : "Ausgabe erfassen"),
   `<form class="form" data-form="entry" data-id="${e.id || ""}" autocomplete="off">
@@ -1560,8 +1562,7 @@ function entryForm(e) {
         <label><input type="radio" name="kind" value="in" ${e.kind === "in" ? "checked" : ""} data-change="entry-kind"><span>Einnahme</span></label></div></div>
       <div class="f s2"><label for="e-date">Datum der Zahlung</label><input id="e-date" type="date" name="date" value="${esc(e.date || today())}" required></div>
       <div class="f s2"><label for="e-gross">Betrag brutto (€)</label><input id="e-gross" name="gross" inputmode="decimal" value="${esc(numIn(e.gross))}" placeholder="0,00" required autofocus></div>
-      ${ku ? `<div class="f s2"><span class="lbl">Umsatzsteuer</span><span class="hint" style="padding-top:8px">${e.kind === "in" ? "keine (§ 19 UStG)" : "kein Vorsteuerabzug"}</span></div>`
-        : `<div class="f s2"><label for="e-vat">darin USt</label><select id="e-vat" name="vatRate">${[19, 7, 0].map(r => `<option value="${r}" ${Number(e.vatRate ?? 19) === r ? "selected" : ""}>${r} %</option>`).join("")}</select></div>`}
+      <div class="f s2"><label for="e-vat">darin USt</label><select id="e-vat" name="vatRate">${[19, 7, 0].map(r => `<option value="${r}" ${curVat === r ? "selected" : ""}>${r} %${r === 0 && ku ? " (§ 19 UStG)" : ""}</option>`).join("")}</select></div>
       <div class="f"><label for="e-party">${e.kind === "in" ? "Von (Kunde / Zahler)" : "An (Lieferant / Händler)"}</label><input id="e-party" name="party" value="${esc(e.party || "")}" list="party-list"></div>
       <div class="f"><label for="e-cat">Kategorie</label><select id="e-cat" name="category">${cats.map(([k, l]) => `<option value="${k}" ${e.category === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
       <div class="f s4"><label for="e-desc">Beschreibung</label><input id="e-desc" name="desc" value="${esc(e.desc || "")}" placeholder="z. B. Druckerpapier, Domain-Verlängerung"></div>
@@ -1587,9 +1588,10 @@ async function submitEntry(form) {
   const gross = r2(parseNum(fd.get("gross")));
   if (!gross) { toast("Bitte gib einen Betrag ein.", true); return; }
   const kind = fd.get("kind");
+  const ku = !!sett().kleinunternehmer;
   const data = { kind, date: fd.get("date"), gross, party: fd.get("party").trim(), desc: fd.get("desc").trim(), ref: fd.get("ref").trim(),
-    category: fd.get("category"), ku: old.id ? !!old.ku : !!sett().kleinunternehmer,
-    vatRate: Number(fd.get("vatRate") || 0), receiptId: old.receiptId || null, receiptName: old.receiptName || null, createdAt: old.createdAt || new Date().toISOString() };
+    category: fd.get("category"), ku,
+    vatRate: Number(fd.get("vatRate") ?? (ku ? 0 : 19)), receiptId: old.receiptId || null, receiptName: old.receiptName || null, createdAt: old.createdAt || new Date().toISOString() };
   if (kind === "in" && !IN_CATS.some(c => c[0] === data.category)) data.category = "umsatz";
   if (kind === "out" && !OUT_CATS.some(c => c[0] === data.category)) data.category = "sonstige";
   const btn = $("button[type=submit]", form); btn.disabled = true;
@@ -2567,9 +2569,13 @@ async function handleReceiptFileInput(input) {
     if (parsed.date && !f.date.value) f.date.value = parsed.date;
     if (parsed.gross != null && (!f.gross.value || f.gross.value === "0,00")) f.gross.value = numIn(parsed.gross);
     if (parsed.ref && !f.ref.value) f.ref.value = parsed.ref;
-    if (parsed.vatRate != null && f.vatRate) {
-      const vr = Math.round(parsed.vatRate);
-      if ([19, 7, 0].includes(vr)) f.vatRate.value = String(vr);
+    if (f.vatRate) {
+      if (sett().kleinunternehmer) {
+        f.vatRate.value = "0";
+      } else if (parsed.vatRate != null) {
+        const vr = Math.round(parsed.vatRate);
+        if ([19, 7, 0].includes(vr)) f.vatRate.value = String(vr);
+      }
     }
     toast(`E-Rechnung erkannt (${parsed.format}): Daten von „${parsed.party || "Lieferant"}“ übernommen!`);
   }
