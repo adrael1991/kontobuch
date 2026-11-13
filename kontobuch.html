@@ -1667,9 +1667,9 @@ function itemDatalistsHtml() {
 
 function newInvoice(src) {
   const s = sett();
-  ed = { id: null, status: "draft", customerId: "", recipient: "", date: today(), serviceDate: "", dueDays: s.paymentDays, intro: s.intro, notes: "",
+  ed = { id: null, status: "draft", customerId: "", recipient: "", date: today(), serviceDate: "", dueDays: s.paymentDays, subject: "", intro: s.intro, notes: "",
     ku: !!s.kleinunternehmer, items: [{ desc: "", qty: 1, unit: "Std.", price: "", vat: 19 }] };
-  if (src) Object.assign(ed, { customerId: src.customerId, recipient: src.recipient, intro: src.intro, notes: src.notes, serviceDate: "",
+  if (src) Object.assign(ed, { customerId: src.customerId, recipient: src.recipient, subject: src.subject || "", intro: src.intro, notes: src.notes, serviceDate: "",
     items: src.items.map(x => ({ ...x })) });
   invoiceEditor();
 }
@@ -1683,6 +1683,7 @@ function invoiceEditor() {
     <div class="f s2"><label for="i-date">Rechnungsdatum</label><input id="i-date" type="date" name="date" value="${esc(ed.date)}" required></div>
     <div class="f s2"><label for="i-sd">Leistungsdatum / -zeitraum</label><input id="i-sd" name="serviceDate" value="${esc(ed.serviceDate)}" placeholder="z. B. September 2026"></div>
     <div class="f s2"><label for="i-due">Zahlungsziel (Tage)</label><input id="i-due" type="number" min="0" name="dueDays" value="${esc(ed.dueDays)}"></div>
+    <div class="f full"><label for="i-subject">Betreff (optional)</label><input id="i-subject" name="subject" value="${esc(ed.subject || "")}" placeholder="z. B. Website-Relaunch / Projektname"></div>
     <div class="f full"><label for="i-intro">Einleitung</label><textarea id="i-intro" name="intro" rows="2">${esc(ed.intro)}</textarea></div>
   </div>
   ${itemDatalistsHtml()}
@@ -1724,7 +1725,7 @@ function renderTotals() {
 function readInvoiceForm() {
   const f = $('form[data-form="invoice"]'); const fd = new FormData(f);
   Object.assign(ed, { customerId: fd.get("customerId"), recipient: fd.get("recipient").trim(), date: fd.get("date"), serviceDate: fd.get("serviceDate").trim(),
-    dueDays: Number(fd.get("dueDays") || 0), intro: fd.get("intro").trim(), notes: fd.get("notes").trim() });
+    dueDays: Number(fd.get("dueDays") || 0), subject: (fd.get("subject") || "").trim(), intro: fd.get("intro").trim(), notes: fd.get("notes").trim() });
   ed.items = ed.items.map(it => ({ desc: String(it.desc).trim(), qty: parseNum(it.qty), unit: String(it.unit || "").trim(), price: r2(parseNum(it.price)), vat: ed.ku ? 0 : Number(it.vat || 0) }))
     .filter(it => it.desc || it.price);
   if (!ed.items.length) ed.items = [{ desc: "", qty: 1, unit: "", price: 0, vat: 19 }];
@@ -1732,7 +1733,7 @@ function readInvoiceForm() {
 function invoiceDoc(extra) {
   const t = calcInv(ed);
   return { status: ed.status, number: ed.number || null, customerId: ed.customerId || null, recipient: ed.recipient, date: ed.date, serviceDate: ed.serviceDate,
-    dueDays: ed.dueDays, dueDate: addDays(ed.date, ed.dueDays), intro: ed.intro, notes: ed.notes, items: ed.items, ku: ed.ku,
+    dueDays: ed.dueDays, dueDate: addDays(ed.date, ed.dueDays), subject: ed.subject || "", intro: ed.intro, notes: ed.notes, items: ed.items, ku: ed.ku,
     customerNo: S.customers.find(c => c.id === ed.customerId)?.customerNo || null,
     refQuoteId: ed.refQuoteId || null, refQuoteNumber: ed.refQuoteNumber || null,
     net: t.net, vat: t.vat, gross: t.gross, createdAt: ed.createdAt || new Date().toISOString(), ...extra };
@@ -2114,7 +2115,7 @@ function paperHtml(inv) {
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(inv.recipient)}</div></div>
       <div class="meta"><span>Rechnungsnr.</span><span class="mono">${esc(inv.number)}</span>${inv.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(inv.customerNo)}</span>` : ""}<span>Rechnungsdatum</span><span>${fDate(inv.date)}</span>
       <span>Leistungsdatum</span><span>${esc(inv.serviceDate || fDate(inv.date))}</span>${inv.storno ? "" : `<span>Fällig bis</span><span>${fDate(inv.dueDate)}</span>`}<span>E-Rechnung</span><span class="mono small">ZUGFeRD / EN 16931</span></div></div>
-    <div><h2>${inv.storno ? "Stornorechnung" : "Rechnung"}</h2>${inv.storno ? `<p>Storno zu Rechnung ${esc(inv.refNumber)} vom ${fDate(inv.refDate)}.</p>` : inv.intro ? `<p>${esc(inv.intro)}</p>` : ""}</div>
+    <div><h2>${inv.storno ? "Stornorechnung" : "Rechnung"}</h2>${!inv.storno && inv.subject ? `<p style="font-weight:700;margin:6px 0 4px">${esc(inv.subject)}</p>` : ""}${inv.storno ? `<p>Storno zu Rechnung ${esc(inv.refNumber)} vom ${fDate(inv.refDate)}.</p>` : inv.intro ? `<p>${esc(inv.intro)}</p>` : ""}</div>
     <table><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th>${inv.ku ? "" : '<th class="r">USt</th>'}<th class="r">Gesamt</th></tr></thead><tbody>
       ${inv.items.map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.desc)}</td><td class="amt">${String(it.qty).replace(".", ",")} ${esc(it.unit)}</td><td class="amt">${eur(it.price)}</td>${inv.ku ? "" : `<td class="amt">${it.vat} %</td>`}<td class="amt">${eur(r2(it.qty * it.price))}</td></tr>`).join("")}
     </tbody></table>
@@ -2671,7 +2672,13 @@ function invoicePdf(inv, outputType = "blob") {
   meta.forEach(([k, v]) => { gray(); doc.text(k, 125, y); black(); doc.text(String(v || ""), R, y, { align: "right" }); y += 5; });
   // Titel
   y = 100; doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text(inv.storno ? "Stornorechnung" : "Rechnung", L, y);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(10); y += 8;
+  y += 7;
+  if (!inv.storno && inv.subject) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
+    const sLines = doc.splitTextToSize(inv.subject, R - L);
+    doc.text(sLines, L, y); y += sLines.length * 4.8 + 2;
+  }
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   const intro = inv.storno ? `Storno zu Rechnung ${inv.refNumber} vom ${fDate(inv.refDate)}.` : inv.intro;
   if (intro) { const lines = doc.splitTextToSize(intro, R - L); doc.text(lines, L, y); y += lines.length * 4.6 + 4; }
   // Tabelle
@@ -2808,6 +2815,7 @@ function newQuote(src) {
     date: d,
     validDays: vDays,
     validUntil: addDays(d, vDays),
+    subject: "",
     intro: s.quoteIntro || "Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:",
     notes: "",
     closing: s.quoteClosing || "Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.",
@@ -2818,6 +2826,7 @@ function newQuote(src) {
     Object.assign(edQuote, {
       customerId: src.customerId,
       recipient: src.recipient,
+      subject: src.subject || "",
       intro: src.intro,
       notes: src.notes,
       closing: src.closing,
@@ -2836,6 +2845,7 @@ function quoteEditor() {
     <div class="f"><label for="q-rec">Empfänger (Anschrift)</label><textarea id="q-rec" name="recipient" rows="4" required>${esc(edQuote.recipient)}</textarea></div>
     <div class="f s2"><label for="q-date">Angebotsdatum</label><input id="q-date" type="date" name="date" value="${esc(edQuote.date)}" required></div>
     <div class="f s2"><label for="q-due">Gültig (Tage)</label><input id="q-due" type="number" min="1" name="validDays" value="${esc(edQuote.validDays || 30)}"></div>
+    <div class="f full"><label for="q-subject">Betreff (optional)</label><input id="q-subject" name="subject" value="${esc(edQuote.subject || "")}" placeholder="z. B. Website-Relaunch / Projektname"></div>
     <div class="f full"><label for="q-intro">Einleitung</label><textarea id="q-intro" name="intro" rows="2">${esc(edQuote.intro)}</textarea></div>
   </div>
   ${itemDatalistsHtml()}
@@ -2894,6 +2904,7 @@ function readQuoteForm() {
     date: qDate,
     validDays: vDays,
     validUntil: addDays(qDate, vDays),
+    subject: (fd.get("subject") || "").trim(),
     intro: fd.get("intro").trim(),
     notes: fd.get("notes").trim(),
     closing: fd.get("closing").trim()
@@ -2918,6 +2929,7 @@ function quoteDoc(extra) {
     date: edQuote.date,
     validDays: edQuote.validDays,
     validUntil: edQuote.validUntil,
+    subject: edQuote.subject || "",
     intro: edQuote.intro,
     notes: edQuote.notes,
     closing: edQuote.closing,
@@ -2988,7 +3000,7 @@ function paperQuoteHtml(q) {
     <div class="ph"><div><span class="sender">${esc(senderLine)}</span><div class="addr">${esc(q.recipient)}</div></div>
       <div class="meta"><span>Angebotsnr.</span><span class="mono">${esc(q.number)}</span>${q.customerNo ? `<span>Kundennr.</span><span class="mono">${esc(q.customerNo)}</span>` : ""}<span>Angebotsdatum</span><span>${fDate(q.date)}</span>
       <span>Gültig bis</span><span>${fDate(q.validUntil)}</span></div></div>
-    <div><h2>Angebot</h2>${q.intro ? `<p>${esc(q.intro)}</p>` : ""}</div>
+    <div><h2>Angebot</h2>${q.subject ? `<p style="font-weight:700;margin:6px 0 4px">${esc(q.subject)}</p>` : ""}${q.intro ? `<p>${esc(q.intro)}</p>` : ""}</div>
     <table><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th>${q.ku ? "" : '<th class="r">USt</th>'}<th class="r">Gesamt</th></tr></thead><tbody>
       ${q.items.map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.desc)}</td><td class="amt">${String(it.qty).replace(".", ",")} ${esc(it.unit)}</td><td class="amt">${eur(it.price)}</td>${q.ku ? "" : `<td class="amt">${it.vat} %</td>`}<td class="amt">${eur(r2(it.qty * it.price))}</td></tr>`).join("")}
     </tbody></table>
@@ -3071,7 +3083,13 @@ function quotePdf(q, outputType = "blob") {
   meta.forEach(([k, v]) => { gray(); doc.text(k, 125, y); black(); doc.text(String(v || ""), R, y, { align: "right" }); y += 5; });
   // Titel
   y = 100; doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text("Angebot", L, y);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(10); y += 8;
+  y += 7;
+  if (q.subject) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
+    const sLines = doc.splitTextToSize(q.subject, R - L);
+    doc.text(sLines, L, y); y += sLines.length * 4.8 + 2;
+  }
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   const intro = q.intro;
   if (intro) { const lines = doc.splitTextToSize(intro, R - L); doc.text(lines, L, y); y += lines.length * 4.6 + 4; }
   // Tabelle
@@ -3149,6 +3167,7 @@ function convertQuoteToInvoice(id) {
     date: today(),
     serviceDate: "",
     dueDays: s.paymentDays,
+    subject: q.subject || "",
     intro: `Rechnung zu Angebot ${q.number} vom ${fDate(q.date)}.\n${s.intro}`,
     notes: q.notes || "",
     ku: q.ku != null ? q.ku : !!s.kleinunternehmer,
