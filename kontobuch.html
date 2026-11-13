@@ -2101,6 +2101,12 @@ function paperFooterHtml(s) {
     ${showSeparateHolder ? `<span>Kontoinhaber ${esc(holder)}</span>` : ""}${s.iban ? `<span>IBAN ${esc(s.iban)}</span>` : ""}${s.bic ? `<span>BIC ${esc(s.bic)}</span>` : ""}${s.bank ? `<span>${esc(s.bank)}</span>` : ""}</div>`;
 }
 
+function closingWithSig(text, sig) {
+  const c = String(text || "").trim();
+  const s = String(sig || "").trim();
+  if (!c) return "";
+  return !s || c.includes(s) ? c : `${c}\n${s}`;
+}
 function paperHtml(inv) {
   const s = { ...sett(), ...(inv.seller || {}) }; const t = calcInv(inv);
   const holder = bankAccountHolder(s);
@@ -2123,7 +2129,7 @@ function paperHtml(inv) {
       <div class="g"><span>Gesamtbetrag</span><span class="mono">${eur(t.gross)}</span></div></div>
     <div>${inv.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
       ${inv.storno ? "" : `<p>Bitte überweisen Sie den Betrag bis zum ${fDate(inv.dueDate)}${s.iban ? ` auf das unten genannte Konto${holder && holder !== s.name ? ` (Empfänger / Kontoinhaber: ${esc(holder)})` : ""}` : ""} unter Angabe der Rechnungsnummer.</p>`}
-      ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}${giroHtml}<p class="sub" style="margin-top:8px">E-Rechnung nach EN 16931. Die maschinenlesbare XML-Datei (Factur-X) ist im PDF eingebettet.</p>${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(s.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
+      ${inv.notes ? `<p style="margin-top:8px">${esc(inv.notes)}</p>` : ""}${giroHtml}<p class="sub" style="margin-top:8px">E-Rechnung nach EN 16931. Die maschinenlesbare XML-Datei (Factur-X) ist im PDF eingebettet.</p>${s.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(closingWithSig(s.closing, s.owner || s.name))}</p>` : ""}</div>
     ${paperFooterHtml(s)}
   </div>`;
 }
@@ -2641,11 +2647,13 @@ function invoicePdf(inv, outputType = "blob") {
 
   const footer = () => {
     if (s.hideTextFooter) return;
-    doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
+    doc.setFontSize(7.2); gray(); doc.setDrawColor(200); doc.line(L, 277, R, 277);
     const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
     const bank = [s.bank, s.iban && holder && holder !== s.name && `Kontoinhaber ${holder}`, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
-    doc.text(parts.join("  ·  "), L, 283);
-    doc.text([...(bank.length ? [bank.join("  ·  ")] : []), "E-Rechnung nach EN 16931 (ZUGFeRD 2.2 / Factur-X)"].join("  ·  "), L, 287);
+    const l1 = doc.splitTextToSize(parts.join("  ·  "), R - L);
+    doc.text(l1, L, 281);
+    const l2Text = [...(bank.length ? [bank.join("  ·  ")] : []), "E-Rechnung nach EN 16931 (ZUGFeRD 2.2 / Factur-X)"].join("  ·  ");
+    doc.text(doc.splitTextToSize(l2Text, R - L), L, 281 + l1.length * 3.4);
     black();
   };
   // Kopf
@@ -2701,7 +2709,8 @@ function invoicePdf(inv, outputType = "blob") {
     y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
   });
   // Summen
-  if (y > 235) { footer(); doc.addPage(); drawStationery(); y = 25; }
+  const totalsNeed = inv.ku ? 12 : 16 + Object.keys(t.byRate).filter(r => Number(r)).length * 5;
+  if (y + totalsNeed > 268) { footer(); doc.addPage(); drawStationery(); y = 25; }
   y += 2; const lx = 125;
   if (!inv.ku) {
     doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
@@ -2744,7 +2753,7 @@ function invoicePdf(inv, outputType = "blob") {
     black(); doc.setFontSize(10);
     y += boxSize + 4;
   }
-  if (s.closing) { y += 4; const lines = doc.splitTextToSize(`${s.closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
+  if (s.closing) { y += 4; const lines = doc.splitTextToSize(closingWithSig(s.closing, s.owner || s.name), R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
   footer();
   return doc.output(outputType);
 }
@@ -3009,7 +3018,7 @@ function paperQuoteHtml(q) {
     <div>${q.ku ? "<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</p>" : ""}
       ${q.validUntil ? `<p>Dieses Angebot ist freibleibend gültig bis zum ${fDate(q.validUntil)}.</p>` : ""}
       ${q.notes ? `<p style="margin-top:8px">${esc(q.notes)}</p>` : ""}
-      ${q.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(q.closing)}\n${esc(s.owner || s.name)}</p>` : ""}</div>
+      ${q.closing ? `<p style="margin-top:12px;white-space:pre-line">${esc(closingWithSig(q.closing, s.owner || s.name))}</p>` : ""}</div>
     ${paperFooterHtml(s)}
   </div>`;
 }
@@ -3054,11 +3063,12 @@ function quotePdf(q, outputType = "blob") {
 
   const footer = () => {
     if (s.hideTextFooter) return;
-    doc.setFontSize(7.5); gray(); doc.setDrawColor(200); doc.line(L, 278, R, 278);
+    doc.setFontSize(7.2); gray(); doc.setDrawColor(200); doc.line(L, 277, R, 277);
     const parts = [s.name, [s.street, [s.zip, s.city].filter(Boolean).join(" ")].filter(Boolean).join(", "), s.taxNo && `Steuernr. ${s.taxNo}`, s.vatId && `USt-IdNr. ${s.vatId}`].filter(Boolean);
     const bank = [s.bank, s.iban && `IBAN ${s.iban}`, s.bic && `BIC ${s.bic}`].filter(Boolean);
-    doc.text(parts.join("  ·  "), L, 283);
-    if (bank.length) doc.text(bank.join("  ·  "), L, 287);
+    const l1 = doc.splitTextToSize(parts.join("  ·  "), R - L);
+    doc.text(l1, L, 281);
+    if (bank.length) doc.text(doc.splitTextToSize(bank.join("  ·  "), R - L), L, 281 + l1.length * 3.4);
     black();
   };
   // Kopf
@@ -3112,7 +3122,8 @@ function quotePdf(q, outputType = "blob") {
     y += lines.length * 4.4 + 2.6; doc.setDrawColor(225); doc.line(L, y - 3.2, R, y - 3.2);
   });
   // Summen
-  if (y > 235) { footer(); doc.addPage(); drawStationery(); y = 25; }
+  const totalsNeed = q.ku ? 12 : 16 + Object.keys(t.byRate).filter(r => Number(r)).length * 5;
+  if (y + totalsNeed > 268) { footer(); doc.addPage(); drawStationery(); y = 25; }
   y += 2; const lx = 125;
   if (!q.ku) {
     doc.text("Netto", lx, y); doc.text(eur(t.net), R, y, { align: "right" }); y += 5;
@@ -3128,7 +3139,7 @@ function quotePdf(q, outputType = "blob") {
   if (q.notes) tail.push(q.notes);
   tail.forEach(p => { const lines = doc.splitTextToSize(p, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); y += lines.length * 4.6 + 2; });
   const closing = q.closing || s.quoteClosing || s.closing;
-  if (closing) { y += 4; const lines = doc.splitTextToSize(`${closing}\n${s.owner || s.name}`, R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
+  if (closing) { y += 4; const lines = doc.splitTextToSize(closingWithSig(closing, s.owner || s.name), R - L); if (y + lines.length * 4.6 > 270) { footer(); doc.addPage(); drawStationery(); y = 25; } doc.text(lines, L, y); }
   footer();
   return doc.output(outputType);
 }
