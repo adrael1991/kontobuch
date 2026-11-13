@@ -1083,7 +1083,7 @@ function entriesRows() {
     ${rows.map(r => `<tr class="clickable" data-act="${r.src === "inv" ? "open-invoice" : "edit-entry"}" data-id="${r.id}">
       <td class="mono small">${fDate(r.date)}</td><td>${esc(r.party || "–")}<span class="sub">${esc(r.desc || "")}</span></td>
       <td class="small">${r.src === "inv" ? "Rechnung" : esc(CAT[r.category] || r.category)}</td>
-      <td class="small">${r.src === "inv" ? `<span class="mono">${esc(r.ref)}</span>` : r.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(r.receiptId)}" data-name="${esc(r.receiptName || r.party || 'Beleg')}" data-stop title="Beleg-Vorschau öffnen">👁 Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(r.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">fehlt</span>'}</td>
+      <td class="small">${r.src === "inv" ? `<span class="mono">${esc(r.ref)}</span>` : r.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(r.receiptId)}" data-name="${esc(r.receiptName || r.party || 'Beleg')}" data-stop title="Beleg-Vorschau öffnen">Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(r.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">fehlt</span>'}</td>
       <td class="amt in">${r.kind === "in" ? num(r.gross) : ""}</td><td class="amt out">${r.kind === "out" ? num(r.gross) : ""}</td></tr>`).join("")}
     <tr class="total"><td colspan="4">Summe ${rows.length} Buchungen</td><td class="amt in">${num(sIn)}</td><td class="amt out">${num(sOut)}</td></tr>
     </tbody></table></div>`;
@@ -1146,7 +1146,7 @@ function vAnlagen() {
       <td class="amt in">${a.calc.additions ? num(a.calc.additions) : "–"}</td>
       <td class="amt out">${a.calc.afa ? num(a.calc.afa) : "–"}</td>
       <td class="amt">${num(a.calc.bookEnd)}</td>
-      <td class="small">${a.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(a.receiptId)}" data-name="${esc(a.receiptName || a.name || 'Beleg')}" data-stop title="Kaufbeleg ansehen">👁 Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(a.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">–</span>'}</td>
+      <td class="small">${a.receiptId ? `<button class="btn sm ghost" data-act="view-receipt" data-id="${esc(a.receiptId)}" data-name="${esc(a.receiptName || a.name || 'Beleg')}" data-stop title="Kaufbeleg ansehen">Vorschau</button><a class="icon-btn sm" href="/_blob/${esc(a.receiptId)}" target="_blank" rel="noopener" data-stop title="In neuem Tab öffnen" style="display:inline-grid;vertical-align:middle;margin-left:2px">↗</a>` : '<span class="muted">–</span>'}</td>
     </tr>`).join("")}
     <tr class="total"><td colspan="3">Summe ${relevant.length} Anlagegüter</td><td class="amt">${num(sumStart)}</td><td class="amt in">${num(sumAdd)}</td><td class="amt out">${num(sumAfa)}</td><td class="amt">${num(sumEnd)}</td><td></td></tr>
   </tbody></table></div>`}`;
@@ -1692,7 +1692,8 @@ function invoiceEditor() {
   <div class="f full"><label for="i-notes">Anmerkung auf der Rechnung (optional)</label><textarea id="i-notes" name="notes" rows="2">${esc(ed.notes)}</textarea></div>
   ${ed.ku ? `<p class="note">Kleinunternehmer: Die Rechnung enthält automatisch den Hinweis „Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</p>` : ""}
   <div class="form-foot"><div class="grp">${ed.id ? `<button type="button" class="btn danger" data-act="del-invoice" data-id="${ed.id}">Entwurf löschen</button>` : ""}</div>
-    <div class="grp"><button type="button" class="btn" data-act="inv-save-draft" title="Tastenkürzel: Strg/Cmd + S">Als Entwurf speichern</button>
+    <div class="grp"><button type="button" class="btn" data-act="inv-preview">Vorschau</button>
+    <button type="button" class="btn" data-act="inv-save-draft" title="Tastenkürzel: Strg/Cmd + S">Als Entwurf speichern</button>
     <button class="btn primary" type="submit">Festschreiben als ${esc(nextInvoice(yOf(ed.date)).number)}</button></div></div></form>`, { wide: true });
   renderItems();
 }
@@ -1739,6 +1740,15 @@ function invoiceDoc(extra) {
 async function saveDraft() {
   readInvoiceForm(); const id = ed.id || uid();
   if (await saveDoc("invoices", id, invoiceDoc({ status: "draft" }))) { closeModal(); toast("Entwurf gespeichert"); }
+}
+function previewDraft() {
+  readInvoiceForm();
+  const s = sett();
+  const seller = Object.fromEntries(SELLER_FIELDS.map(k => [k, s[k] || ""]));
+  seller.closing = s.closing;
+  seller.showGiroCode = s.showGiroCode !== false;
+  const inv = invoiceDoc({ status: "draft", number: `${nextInvoice(yOf(ed.date)).number} (Entwurf)`, seller });
+  openModal("Rechnungsvorschau (Entwurf)", `<div class="toolbar"><button type="button" class="btn" data-act="inv-preview-back">← Zurück zum Bearbeiten</button><span class="chip draft">Vorschau · noch nicht festgeschrieben</span></div><div class="table-wrap">${paperHtml(inv)}</div>`, { wide: true });
 }
 async function finalizeInvoice() {
   readInvoiceForm();
@@ -3860,6 +3870,8 @@ const ACT = {
   "edit-customer": d => customerForm(S.customers.find(c => c.id === d.id)),
   "edit-entry": d => { const e = S.entries.find(x => x.id === d.id); if (e) entryForm(e); },
   "open-invoice": d => openInvoice(d.id),
+  "inv-preview": () => previewDraft(),
+  "inv-preview-back": () => invoiceEditor(),
   "open-quote": d => openQuote(d.id),
   "mark-paid": d => markPaid(d.id),
   unpay: d => { const inv = S.invoices.find(i => i.id === d.id); confirmBox("Zahlung zurücknehmen?", `Rechnung ${esc(inv.number)} wird wieder als offen geführt.`, "Zurücknehmen",
